@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 2
+names: ['litter_sand', 'poop']
+
+roboflow:
+  workspace: meditech-4cghm
+  project: catalyze-bb-hnqs1
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/meditech-4cghm/catalyze-bb-hnqs1/dataset/2
