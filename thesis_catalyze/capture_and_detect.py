@@ -1,3 +1,4 @@
+import argparse
 import json
 import threading
 import time
@@ -8,6 +9,12 @@ import cv2
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
+import color_analyzer
+import db
+import gallon_rotate
+import remark_engine
+from api import run_in_background as run_api
+
 CAT_WEIGHTS  = "/home/catalyze/catalyze/yolov8n.pt"
 POOP_WEIGHTS = "/home/catalyze/catalyze/runs/detect/train/weights/best.pt"
 CAT_CLASS    = "cat"
@@ -17,9 +24,18 @@ POOP_CONF    = 0.40
 CAT_IMGSZ    = 320
 POOP_IMGSZ   = 640
 CAPTURE_DIR  = Path("/home/catalyze/catalyze/captures")
-POLL_INTERVAL        = 3
-POST_CLEAN_COOLDOWN  = 30
-FALLBACK_POOP_INTERVAL = 60  # run poop scan even without a cat trigger
+DB_PATH      = CAPTURE_DIR / "catalyze.db"
+
+# Cadence: faster idle polling + faster fallback so the box is never blind for long
+POLL_INTERVAL          = 1     # was 3
+POST_CLEAN_COOLDOWN    = 30
+FALLBACK_POOP_INTERVAL = 30    # was 60
+
+# Motor cleaning cycle defaults (tunable; see gallon_rotate.py)
+MOTOR_DIRECTION = 1            # 1=CW, 0=CCW
+MOTOR_STEPS     = 2000
+MOTOR_DELAY     = gallon_rotate.STEP_DELAY
+CROP_PADDING    = 20
 
 STATE_COLOR = {
     "IDLE":     (0, 255, 0),    # green
@@ -44,20 +60,103 @@ def draw_overlay(frame, state, detections, cooldown_remaining=None):
     return disp
 
 
+def _tightest_bbox(detections):
+    """Pick the highest-confidence detection's bbox."""
+    if not detections:
+        return None
+    best = max(detections, key=lambda d: d["confidence"])
+    return best["bbox"]
+
+
+def _crop_with_padding(frame, bbox, padding):
+    h, w = frame.shape[:2]
+    x1, y1, x2, y2 = bbox
+    x1 = max(0, x1 - padding)
+    y1 = max(0, y1 - padding)
+    x2 = min(w, x2 + padding)
+    y2 = min(h, y2 + padding)
+    return frame[y1:y2, x1:x2], [x1, y1, x2, y2]
+
+
 def save_detection(frame, timestamp, detections):
+    """Save full + cropped + overlay images, run color analysis, write db row.
+
+    Returns the inserted db row id (or None on failure to crop).
+    """
     stamp = timestamp.strftime("%Y%m%d_%H%M%S")
-    img_path = CAPTURE_DIR / f"capture_{stamp}.jpg"
-    json_path = CAPTURE_DIR / f"capture_{stamp}.json"
-    cv2.imwrite(str(img_path), frame)
+    full_path    = CAPTURE_DIR / f"capture_{stamp}_full.jpg"
+    crop_path    = CAPTURE_DIR / f"capture_{stamp}_crop.jpg"
+    overlay_path = CAPTURE_DIR / f"capture_{stamp}_overlay.jpg"
+    json_path    = CAPTURE_DIR / f"capture_{stamp}.json"
+
+    cv2.imwrite(str(full_path), frame)
+
+    bbox = _tightest_bbox(detections)
+    color_pcts = {}
+    remark, severity = "No bbox available", "warning"
+    crop_bbox = None
+    crop_name = None
+    overlay_name = None
+
+    if bbox is not None:
+        crop, crop_bbox = _crop_with_padding(frame, bbox, CROP_PADDING)
+        if crop.size > 0:
+            cv2.imwrite(str(crop_path), crop)
+            crop_name = crop_path.name
+
+            result = color_analyzer.analyze(crop)
+            color_pcts = result.percentages
+            overlay_img = color_analyzer.make_overlay(crop, result.masks)
+            cv2.imwrite(str(overlay_path), overlay_img)
+            overlay_name = overlay_path.name
+
+            remark, severity = remark_engine.evaluate(color_pcts)
+
     json_path.write_text(json.dumps({
-        "timestamp": timestamp.isoformat(),
-        "image": img_path.name,
+        "timestamp":  timestamp.isoformat(),
+        "image_full": full_path.name,
+        "image_crop": crop_name,
+        "image_overlay": overlay_name,
         "detections": detections,
+        "crop_bbox":  crop_bbox,
+        "colors":     color_pcts,
+        "remark":     remark,
+        "severity":   severity,
     }, indent=2))
-    print(f"[{stamp}] Saved {img_path.name} ({len(detections)} detection(s))", flush=True)
+
+    row_id = db.insert_detection(
+        timestamp=timestamp.isoformat(),
+        image_full=full_path.name,
+        image_crop=crop_name,
+        image_overlay=overlay_name,
+        bbox=crop_bbox,
+        color_pcts=color_pcts,
+        remark=remark,
+        severity=severity,
+    )
+
+    print(f"[{stamp}] Saved id={row_id} {full_path.name} severity={severity} colors={color_pcts}", flush=True)
+    return row_id
 
 
-def inference_loop(cat_model, poop_model, shared, lock, stop_event):
+def trigger_motor(dry_run: bool):
+    """Run cleaning cycle in a background thread so detection isn't blocked."""
+    def _run():
+        try:
+            gallon_rotate.rotate(
+                direction=MOTOR_DIRECTION,
+                steps=MOTOR_STEPS,
+                delay=MOTOR_DELAY,
+                simulate=dry_run,
+            )
+            print(f"[motor] cleaning cycle done (dry_run={dry_run})", flush=True)
+        except Exception as e:
+            print(f"[motor] cleaning cycle FAILED: {e}", flush=True)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
     while not stop_event.is_set():
         time.sleep(POLL_INTERVAL)
 
@@ -71,10 +170,8 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event):
         t = timestamp.strftime("%H:%M:%S")
 
         if state in ("IDLE", "OCCUPIED"):
-            # Run cat detection with no threshold so we can log what it sees
             results_raw = cat_model.predict(frame, imgsz=CAT_IMGSZ, conf=0.01,
                                             classes=[15], verbose=False)[0]
-            # Log top cat confidence for tuning
             top_conf = max((float(b.conf[0]) for b in results_raw.boxes), default=0.0)
             print(f"[{t}] Cat model top conf: {top_conf:.3f} (threshold {CAT_CONF})", flush=True)
 
@@ -129,7 +226,8 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event):
                     save_detection(frame, timestamp, detections)
                     shared["state"] = "DIRTY"
                     shared["detections"] = detections
-                    print(f"[{t}] Poop detected — waiting for clean", flush=True)
+                    print(f"[{t}] Poop detected — firing motor", flush=True)
+                    trigger_motor(dry_run=dry_run)
                 else:
                     shared["state"] = "IDLE"
                     shared["detections"] = []
@@ -156,8 +254,19 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event):
                     print(f"[{t}] Re-armed", flush=True)
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Catalyze detection + cleaning loop")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Simulate motor calls instead of driving GPIO (safe on PC / no driver)")
+    p.add_argument("--api-port", type=int, default=8000)
+    p.add_argument("--no-api", action="store_true", help="Don't start the FastAPI server")
+    return p.parse_args()
+
+
 def main():
+    args = parse_args()
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    db.init(DB_PATH)
 
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
@@ -184,15 +293,26 @@ def main():
     }
     stop_event = threading.Event()
 
+    if not args.no_api:
+        def status_provider():
+            with lock:
+                return {
+                    "state":          shared["state"],
+                    "detections":     shared["detections"],
+                    "last_poop_scan": shared["last_poop_scan"],
+                }
+        run_api(CAPTURE_DIR, status_provider, port=args.api_port)
+        print(f"API listening on :{args.api_port}", flush=True)
+
     infer_thread = threading.Thread(
         target=inference_loop,
-        args=(cat_model, poop_model, shared, lock, stop_event),
+        args=(cat_model, poop_model, shared, lock, stop_event, args.dry_run),
         daemon=True,
     )
     infer_thread.start()
 
     cv2.namedWindow("Catalyze — Litter Monitor", cv2.WINDOW_NORMAL)
-    print("Monitoring... (Q or Esc to stop)", flush=True)
+    print(f"Monitoring... dry_run={args.dry_run} (Q or Esc to stop)", flush=True)
 
     try:
         while True:
@@ -218,7 +338,7 @@ def main():
         pass
     finally:
         stop_event.set()
-        infer_thread.join(timeout=15)  # wait for in-progress inference to finish
+        infer_thread.join(timeout=15)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)

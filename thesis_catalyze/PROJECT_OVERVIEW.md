@@ -36,6 +36,24 @@ The project supports two major capabilities:
   - Trained outputs are stored in `runs/` directories.
 
 ## Important files and their roles
+- `capture_and_detect.py`
+  - Main on-Pi pipeline. Runs camera, cat/poop YOLO models, state machine
+    (IDLE → OCCUPIED → CHECKING → DIRTY → COOLDOWN), saves snapshots
+    (full + crop + color overlay), writes a SQLite row per event, and
+    auto-fires the cleaning motor on `DIRTY`. Also starts the read-side
+    REST API for the web app. Use `--dry-run` to simulate the motor.
+- `color_analyzer.py`
+  - HSV-based color segmentation. `analyze(crop)` returns red/yellow/green/brown
+    pixel percentages; `make_overlay(...)` produces the tinted segmentation image.
+- `remark_engine.py`
+  - Pure function that maps color percentages to a remark + severity
+    (`normal` / `warning` / `critical`).
+- `db.py`
+  - SQLite store at `captures/catalyze.db`, single `detections` table with
+    image paths, bbox, color percentages, remark, and severity.
+- `api.py`
+  - FastAPI server (background thread) exposing `/status`, `/detections`,
+    `/detections/{id}`, `/image/{filename}` for the web app.
 - `dashboard.py`
   - Main Flask PC client/proxy.
   - Serves the control page and forwards rotate/level requests to Raspberry Pi.

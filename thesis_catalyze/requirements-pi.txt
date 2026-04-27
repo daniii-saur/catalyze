@@ -5,6 +5,8 @@ flask-cors
 RPi.GPIO
 ultralytics
 opencv-python
+fastapi
+uvicorn
 # torch: install separately from the CPU index:
 #   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
 # picamera2: provided by apt (python3-picamera2), not pip
