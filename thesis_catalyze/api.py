@@ -2,13 +2,16 @@
 
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 
 import db
+
+
+_VALID_SEVERITY = {"normal", "warning", "critical"}
 
 
 def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]]) -> FastAPI:
@@ -18,9 +21,31 @@ def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]])
     def status():
         return status_provider()
 
+    @app.get("/health")
+    def health():
+        return db.health()
+
     @app.get("/detections")
-    def list_detections(limit: int = 50, offset: int = 0):
-        return {"items": db.list_detections(limit=limit, offset=offset)}
+    def list_detections(
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        severity: Optional[str] = None,
+        kind: Optional[str] = None,
+    ):
+        if severity is not None and severity not in _VALID_SEVERITY:
+            raise HTTPException(
+                status_code=400,
+                detail=f"severity must be one of {sorted(_VALID_SEVERITY)}",
+            )
+        return {
+            "items": db.list_detections(
+                limit=limit, offset=offset,
+                since=since, until=until,
+                severity=severity, kind=kind,
+            )
+        }
 
     @app.get("/detections/{detection_id}")
     def get_detection(detection_id: int):
@@ -28,6 +53,10 @@ def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]])
         if not rec:
             raise HTTPException(status_code=404, detail="not found")
         return rec
+
+    @app.get("/stats/by-day")
+    def stats_by_day(days: int = Query(30, ge=1, le=365)):
+        return {"items": db.stats_by_day(days=days)}
 
     @app.get("/image/{filename}")
     def get_image(filename: str):

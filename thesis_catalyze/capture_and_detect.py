@@ -1,4 +1,5 @@
 import argparse
+import gc
 import json
 import threading
 import time
@@ -12,6 +13,7 @@ from ultralytics import YOLO
 import color_analyzer
 import db
 import gallon_rotate
+import maintenance
 import remark_engine
 from api import run_in_background as run_api
 
@@ -25,11 +27,11 @@ CAT_IMGSZ    = 320
 POOP_IMGSZ   = 640
 CAPTURE_DIR  = Path("/home/catalyze/catalyze/captures")
 DB_PATH      = CAPTURE_DIR / "catalyze.db"
+POOP_MODEL_VERSION = f"poop:{Path(POOP_WEIGHTS).name}"
 
-# Cadence: faster idle polling + faster fallback so the box is never blind for long
-POLL_INTERVAL          = 1     # was 3
+POLL_INTERVAL          = 4     # seconds between inference runs
 POST_CLEAN_COOLDOWN    = 30
-FALLBACK_POOP_INTERVAL = 30    # was 60
+FALLBACK_POOP_INTERVAL = 120   # fallback poop scan when no cat trigger
 
 # Motor cleaning cycle defaults (tunable; see gallon_rotate.py)
 MOTOR_DIRECTION = 1            # 1=CW, 0=CCW
@@ -38,7 +40,7 @@ MOTOR_DELAY     = gallon_rotate.STEP_DELAY
 CROP_PADDING    = 20
 
 STATE_COLOR = {
-    "IDLE":     (0, 255, 0),    # green
+    "MONITORING": (0, 255, 0),    # green
     "OCCUPIED": (0, 255, 255),  # yellow
     "CHECKING": (255, 255, 0),  # cyan
     "DIRTY":    (0, 0, 255),    # red
@@ -133,6 +135,7 @@ def save_detection(frame, timestamp, detections):
         color_pcts=color_pcts,
         remark=remark,
         severity=severity,
+        model_version=POOP_MODEL_VERSION,
     )
 
     print(f"[{stamp}] Saved id={row_id} {full_path.name} severity={severity} colors={color_pcts}", flush=True)
@@ -169,8 +172,8 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
         timestamp = datetime.now()
         t = timestamp.strftime("%H:%M:%S")
 
-        if state in ("IDLE", "OCCUPIED"):
-            results_raw = cat_model.predict(frame, imgsz=CAT_IMGSZ, conf=0.01,
+        if state in ("MONITORING", "OCCUPIED"):
+            results_raw = cat_model.predict(frame, imgsz=CAT_IMGSZ, conf=0.15,
                                             classes=[15], verbose=False)[0]
             top_conf = max((float(b.conf[0]) for b in results_raw.boxes), default=0.0)
             print(f"[{t}] Cat model top conf: {top_conf:.3f} (threshold {CAT_CONF})", flush=True)
@@ -189,13 +192,13 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
                 last_poop_scan = shared["last_poop_scan"]
                 fallback_due = (time.time() - last_poop_scan) >= FALLBACK_POOP_INTERVAL
 
-            if state == "IDLE" and fallback_due:
+            if state == "MONITORING" and fallback_due:
                 print(f"[{t}] Fallback poop scan (no cat trigger)", flush=True)
                 with lock:
                     shared["state"] = "CHECKING"
             else:
                 with lock:
-                    if state == "IDLE":
+                    if state == "MONITORING":
                         if cat_detected:
                             shared["state"] = "OCCUPIED"
                             shared["detections"] = detections
@@ -229,7 +232,7 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
                     print(f"[{t}] Poop detected — firing motor", flush=True)
                     trigger_motor(dry_run=dry_run)
                 else:
-                    shared["state"] = "IDLE"
+                    shared["state"] = "MONITORING"
                     shared["detections"] = []
                     print(f"[{t}] No poop — back to idle", flush=True)
 
@@ -250,8 +253,10 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
         elif state == "COOLDOWN":
             with lock:
                 if time.time() - shared["clean_since"] >= POST_CLEAN_COOLDOWN:
-                    shared["state"] = "IDLE"
+                    shared["state"] = "MONITORING"
                     print(f"[{t}] Re-armed", flush=True)
+
+        gc.collect()
 
 
 def parse_args():
@@ -267,11 +272,12 @@ def main():
     args = parse_args()
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
+    maint_thread, maint_stop = maintenance.start(CAPTURE_DIR, DB_PATH)
 
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
         main={"size": (640, 360), "format": "RGB888"},
-        buffer_count=4,
+        buffer_count=2,
     )
     picam2.configure(config)
     picam2.start()
@@ -286,7 +292,7 @@ def main():
     lock = threading.Lock()
     shared = {
         "frame":            None,
-        "state":            "IDLE",
+        "state":            "MONITORING",
         "detections":       [],
         "clean_since":      None,
         "last_poop_scan":   0.0,
@@ -331,14 +337,16 @@ def main():
 
             cv2.imshow("Catalyze — Litter Monitor",
                        draw_overlay(frame, state, detections, cooldown_remaining))
-            if cv2.waitKey(100) & 0xFF in (ord("q"), 27):
+            if cv2.waitKey(200) & 0xFF in (ord("q"), 27):  # 5 fps display
                 break
 
     except KeyboardInterrupt:
         pass
     finally:
         stop_event.set()
+        maint_stop.set()
         infer_thread.join(timeout=15)
+        maint_thread.join(timeout=5)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)

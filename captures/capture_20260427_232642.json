@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-04-27T23:26:42.842546",
+  "image_full": "capture_20260427_232642_full.jpg",
+  "image_crop": "capture_20260427_232642_crop.jpg",
+  "image_overlay": "capture_20260427_232642_overlay.jpg",
+  "detections": [
+    {
+      "class": "poop",
+      "confidence": 0.4652,
+      "bbox": [
+        465,
+        99,
+        640,
+        297
+      ]
+    }
+  ],
+  "crop_bbox": [
+    445,
+    79,
+    640,
+    317
+  ],
+  "colors": {
+    "red": 6.93,
+    "yellow": 0.0,
+    "green": 1.47,
+    "brown": 36.79
+  },
+  "remark": "Inconclusive \u2014 keep monitoring.",
+  "severity": "warning"
+}
