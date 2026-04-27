@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-04-27T18:23:07.168505",
+  "image": "capture_20260427_182307.jpg",
+  "detections": [
+    {
+      "class": "poop",
+      "confidence": 0.5959,
+      "bbox": [
+        790,
+        157,
+        959,
+        490
+      ]
+    }
+  ]
+}
