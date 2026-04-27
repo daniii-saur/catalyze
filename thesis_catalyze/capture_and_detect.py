@@ -8,18 +8,25 @@ import cv2
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
-WEIGHTS = "/home/catalyze/catalyze/runs/detect/train/weights/best.pt"
-CONF_THRESHOLD = 0.40
-TARGET_CLASS = "poop"
-CAPTURE_DIR = Path("/home/catalyze/catalyze/captures")
-IMGSZ = 640
-POLL_INTERVAL = 5
-POST_CLEAN_COOLDOWN = 30
+CAT_WEIGHTS  = "/home/catalyze/catalyze/yolov8n.pt"
+POOP_WEIGHTS = "/home/catalyze/catalyze/runs/detect/train/weights/best.pt"
+CAT_CLASS    = "cat"
+POOP_CLASS   = "poop"
+CAT_CONF     = 0.25   # low — top-view cats score lower in COCO-trained model
+POOP_CONF    = 0.40
+CAT_IMGSZ    = 320
+POOP_IMGSZ   = 640
+CAPTURE_DIR  = Path("/home/catalyze/catalyze/captures")
+POLL_INTERVAL        = 3
+POST_CLEAN_COOLDOWN  = 30
+FALLBACK_POOP_INTERVAL = 60  # run poop scan even without a cat trigger
 
 STATE_COLOR = {
-    "MONITORING":        (0, 255, 0),
-    "WAITING_FOR_CLEAN": (0, 165, 255),
-    "COOLDOWN":          (255, 255, 0),
+    "IDLE":     (0, 255, 0),    # green
+    "OCCUPIED": (0, 255, 255),  # yellow
+    "CHECKING": (255, 255, 0),  # cyan
+    "DIRTY":    (0, 0, 255),    # red
+    "COOLDOWN": (0, 165, 255),  # orange
 }
 
 
@@ -28,9 +35,9 @@ def draw_overlay(frame, state, detections, cooldown_remaining=None):
     for d in detections:
         x1, y1, x2, y2 = d["bbox"]
         label = f"{d['class']} {d['confidence']:.2f}"
-        cv2.rectangle(disp, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(disp, (x1, y1), (x2, y2), STATE_COLOR.get(state, (255, 255, 255)), 2)
         cv2.putText(disp, label, (x1, max(0, y1 - 6)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, STATE_COLOR.get(state, (255, 255, 255)), 1, cv2.LINE_AA)
     text = f"{state} ({cooldown_remaining}s)" if state == "COOLDOWN" and cooldown_remaining else state
     cv2.putText(disp, text, (10, 28),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, STATE_COLOR.get(state, (255, 255, 255)), 2, cv2.LINE_AA)
@@ -50,54 +57,102 @@ def save_detection(frame, timestamp, detections):
     print(f"[{stamp}] Saved {img_path.name} ({len(detections)} detection(s))", flush=True)
 
 
-def inference_loop(model, names, shared, lock, stop_event):
+def inference_loop(cat_model, poop_model, shared, lock, stop_event):
     while not stop_event.is_set():
         time.sleep(POLL_INTERVAL)
 
         with lock:
             frame = shared["frame"].copy() if shared["frame"] is not None else None
+            state = shared["state"]
         if frame is None:
             continue
 
         timestamp = datetime.now()
         t = timestamp.strftime("%H:%M:%S")
-        results = model.predict(frame, imgsz=IMGSZ, conf=CONF_THRESHOLD, verbose=False)[0]
 
-        detections = []
-        for box in results.boxes:
-            cls_id = int(box.cls[0])
-            cls_name = names[cls_id]
-            if cls_name != TARGET_CLASS:
-                continue
-            conf = float(box.conf[0])
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            detections.append({"class": cls_name, "confidence": round(conf, 4), "bbox": [x1, y1, x2, y2]})
+        if state in ("IDLE", "OCCUPIED"):
+            # Run cat detection with no threshold so we can log what it sees
+            results_raw = cat_model.predict(frame, imgsz=CAT_IMGSZ, conf=0.01,
+                                            classes=[15], verbose=False)[0]
+            # Log top cat confidence for tuning
+            top_conf = max((float(b.conf[0]) for b in results_raw.boxes), default=0.0)
+            print(f"[{t}] Cat model top conf: {top_conf:.3f} (threshold {CAT_CONF})", flush=True)
 
-        poop_present = bool(detections)
+            detections = []
+            for box in results_raw.boxes:
+                cls_name = cat_model.names[int(box.cls[0])]
+                conf = float(box.conf[0])
+                if cls_name != CAT_CLASS or conf < CAT_CONF:
+                    continue
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                detections.append({"class": cls_name, "confidence": round(conf, 4), "bbox": [x1, y1, x2, y2]})
+            cat_detected = bool(detections)
 
-        with lock:
-            state = shared["state"]
-            if state == "MONITORING":
-                if poop_present:
+            with lock:
+                last_poop_scan = shared["last_poop_scan"]
+                fallback_due = (time.time() - last_poop_scan) >= FALLBACK_POOP_INTERVAL
+
+            if state == "IDLE" and fallback_due:
+                print(f"[{t}] Fallback poop scan (no cat trigger)", flush=True)
+                with lock:
+                    shared["state"] = "CHECKING"
+            else:
+                with lock:
+                    if state == "IDLE":
+                        if cat_detected:
+                            shared["state"] = "OCCUPIED"
+                            shared["detections"] = detections
+                            print(f"[{t}] Cat entered — monitoring", flush=True)
+                    elif state == "OCCUPIED":
+                        if cat_detected:
+                            shared["detections"] = detections
+                            print(f"[{t}] Cat still in box", flush=True)
+                        else:
+                            shared["detections"] = []
+                            shared["state"] = "CHECKING"
+                            print(f"[{t}] Cat left — scanning for poop", flush=True)
+
+        elif state == "CHECKING":
+            results = poop_model.predict(frame, imgsz=POOP_IMGSZ, conf=POOP_CONF, verbose=False)[0]
+            detections = []
+            for box in results.boxes:
+                cls_name = poop_model.names[int(box.cls[0])]
+                if cls_name != POOP_CLASS:
+                    continue
+                conf = float(box.conf[0])
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                detections.append({"class": cls_name, "confidence": round(conf, 4), "bbox": [x1, y1, x2, y2]})
+
+            with lock:
+                shared["last_poop_scan"] = time.time()
+                if detections:
                     save_detection(frame, timestamp, detections)
-                    shared["state"] = "WAITING_FOR_CLEAN"
+                    shared["state"] = "DIRTY"
                     shared["detections"] = detections
-                    print(f"[{t}] Poop detected — waiting for cleaning cycle", flush=True)
+                    print(f"[{t}] Poop detected — waiting for clean", flush=True)
                 else:
+                    shared["state"] = "IDLE"
                     shared["detections"] = []
-                    print(f"[{t}] No detection", flush=True)
-            elif state == "WAITING_FOR_CLEAN":
+                    print(f"[{t}] No poop — back to idle", flush=True)
+
+        elif state == "DIRTY":
+            results = poop_model.predict(frame, imgsz=POOP_IMGSZ, conf=POOP_CONF, verbose=False)[0]
+            poop_present = any(
+                poop_model.names[int(b.cls[0])] == POOP_CLASS for b in results.boxes
+            )
+            with lock:
                 if poop_present:
-                    shared["detections"] = detections
                     print(f"[{t}] Still dirty", flush=True)
                 else:
-                    shared["detections"] = []
                     shared["clean_since"] = time.time()
                     shared["state"] = "COOLDOWN"
+                    shared["detections"] = []
                     print(f"[{t}] Box clean — cooldown {POST_CLEAN_COOLDOWN}s", flush=True)
-            elif state == "COOLDOWN":
+
+        elif state == "COOLDOWN":
+            with lock:
                 if time.time() - shared["clean_since"] >= POST_CLEAN_COOLDOWN:
-                    shared["state"] = "MONITORING"
+                    shared["state"] = "IDLE"
                     print(f"[{t}] Re-armed", flush=True)
 
 
@@ -114,21 +169,27 @@ def main():
     picam2.set_controls({"FrameDurationLimits": (100000, 100000)})  # 10 fps
     time.sleep(2)
 
-    model = YOLO(WEIGHTS)
-    names = model.names
+    print("Loading models...", flush=True)
+    cat_model  = YOLO(CAT_WEIGHTS)
+    poop_model = YOLO(POOP_WEIGHTS)
+    print("Models ready.", flush=True)
 
     lock = threading.Lock()
     shared = {
-        "frame": None,
-        "state": "MONITORING",
-        "detections": [],
-        "clean_since": None,
+        "frame":            None,
+        "state":            "IDLE",
+        "detections":       [],
+        "clean_since":      None,
+        "last_poop_scan":   0.0,
     }
     stop_event = threading.Event()
 
-    threading.Thread(
-        target=inference_loop, args=(model, names, shared, lock, stop_event), daemon=True
-    ).start()
+    infer_thread = threading.Thread(
+        target=inference_loop,
+        args=(cat_model, poop_model, shared, lock, stop_event),
+        daemon=True,
+    )
+    infer_thread.start()
 
     cv2.namedWindow("Catalyze — Litter Monitor", cv2.WINDOW_NORMAL)
     print("Monitoring... (Q or Esc to stop)", flush=True)
@@ -138,7 +199,7 @@ def main():
             frame = picam2.capture_array()
 
             with lock:
-                shared["frame"] = frame.copy()  # copy immediately — releases the DMA buffer
+                shared["frame"] = frame.copy()
                 state = shared["state"]
                 detections = list(shared["detections"])
                 clean_since = shared["clean_since"]
@@ -150,13 +211,14 @@ def main():
 
             cv2.imshow("Catalyze — Litter Monitor",
                        draw_overlay(frame, state, detections, cooldown_remaining))
-            if cv2.waitKey(100) & 0xFF in (ord("q"), 27):  # 10 fps
+            if cv2.waitKey(100) & 0xFF in (ord("q"), 27):
                 break
 
     except KeyboardInterrupt:
         pass
     finally:
         stop_event.set()
+        infer_thread.join(timeout=15)  # wait for in-progress inference to finish
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)
