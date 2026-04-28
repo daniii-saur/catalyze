@@ -1,12 +1,13 @@
 import argparse
 import threading
 import time
+from pathlib import Path
 
 import cv2
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
-DEFAULT_WEIGHTS = "/home/catalyze/catalyze/runs/detect/train/weights/best.pt"
+DEFAULT_WEIGHTS = str(Path(__file__).parent / "best.pt")
 
 
 def main():
