@@ -18,15 +18,16 @@ import remark_engine
 import supabase_sync
 from api import run_in_background as run_api
 
-CAT_WEIGHTS  = "/home/catalyze/catalyze/yolov8n.pt"
-POOP_WEIGHTS = "/home/catalyze/catalyze/runs/detect/train/weights/best.pt"
+_HERE         = Path(__file__).parent
+CAT_WEIGHTS  = str(_HERE.parent / "yolov8n.pt")
+POOP_WEIGHTS = str(_HERE / "best.pt")
 CAT_CLASS    = "cat"
 POOP_CLASS   = "poop"
 CAT_CONF     = 0.25   # low — top-view cats score lower in COCO-trained model
 POOP_CONF    = 0.40
 CAT_IMGSZ    = 320
 POOP_IMGSZ   = 640
-CAPTURE_DIR  = Path("/home/catalyze/catalyze/captures")
+CAPTURE_DIR  = _HERE.parent / "captures"
 DB_PATH      = CAPTURE_DIR / "catalyze.db"
 POOP_MODEL_VERSION = f"poop:{Path(POOP_WEIGHTS).name}"
 
