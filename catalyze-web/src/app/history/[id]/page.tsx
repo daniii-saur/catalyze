@@ -21,6 +21,7 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
   const ts = new Date(d.timestamp).toLocaleString('en-PH', {
     weekday: 'short', month: 'short', day: 'numeric',
     year: 'numeric', hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Manila',
   })
 
   return (

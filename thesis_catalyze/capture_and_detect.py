@@ -278,7 +278,7 @@ def main():
 
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
-        main={"size": (640, 360), "format": "RGB888"},
+        main={"size": (1280, 720), "format": "RGB888"},
         buffer_count=2,
     )
     picam2.configure(config)
