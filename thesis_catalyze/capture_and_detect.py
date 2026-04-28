@@ -15,6 +15,7 @@ import db
 import gallon_rotate
 import maintenance
 import remark_engine
+import supabase_sync
 from api import run_in_background as run_api
 
 CAT_WEIGHTS  = "/home/catalyze/catalyze/yolov8n.pt"
@@ -273,6 +274,7 @@ def main():
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
     maint_thread, maint_stop = maintenance.start(CAPTURE_DIR, DB_PATH)
+    sync_thread, sync_stop = supabase_sync.start(CAPTURE_DIR)
 
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
@@ -307,7 +309,11 @@ def main():
                     "detections":     shared["detections"],
                     "last_poop_scan": shared["last_poop_scan"],
                 }
-        run_api(CAPTURE_DIR, status_provider, port=args.api_port)
+        def frame_provider():
+            with lock:
+                f = shared["frame"]
+                return f.copy() if f is not None else None
+        run_api(CAPTURE_DIR, status_provider, frame_provider=frame_provider, port=args.api_port)
         print(f"API listening on :{args.api_port}", flush=True)
 
     infer_thread = threading.Thread(
@@ -337,7 +343,7 @@ def main():
 
             cv2.imshow("Catalyze — Litter Monitor",
                        draw_overlay(frame, state, detections, cooldown_remaining))
-            if cv2.waitKey(200) & 0xFF in (ord("q"), 27):  # 5 fps display
+            if cv2.waitKey(200) & 0xFF in (ord("q"), 27):
                 break
 
     except KeyboardInterrupt:
@@ -345,8 +351,10 @@ def main():
     finally:
         stop_event.set()
         maint_stop.set()
+        sync_stop.set()
         infer_thread.join(timeout=15)
         maint_thread.join(timeout=5)
+        sync_thread.join(timeout=5)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)

@@ -156,6 +156,31 @@ def health() -> Dict[str, Any]:
         return {"db_ok": False, "error": str(e), "last_event_at": None, "schema_version": None}
 
 
+def list_unsynced(limit: int = 20) -> List[Dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM detections WHERE synced = 0 ORDER BY id LIMIT ?", (limit,)
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+
+def mark_synced(
+    local_id: int,
+    supabase_id: Optional[str],
+    img_full_url: Optional[str],
+    img_crop_url: Optional[str],
+    img_overlay_url: Optional[str],
+) -> None:
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE detections SET
+                synced = 1, supabase_id = ?,
+                img_full_url = ?, img_crop_url = ?, img_overlay_url = ?
+               WHERE id = ?""",
+            (supabase_id, img_full_url, img_crop_url, img_overlay_url, local_id),
+        )
+
+
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     d = dict(row)
     if d.get("bbox_json"):

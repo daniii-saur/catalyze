@@ -47,6 +47,16 @@ MIGRATIONS: List[str] = [
     CREATE INDEX IF NOT EXISTS idx_detections_severity
         ON detections(severity, timestamp DESC);
     """,
+
+    # v3 — Supabase sync tracking columns.
+    """
+    ALTER TABLE detections ADD COLUMN synced INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE detections ADD COLUMN supabase_id TEXT;
+    ALTER TABLE detections ADD COLUMN img_full_url TEXT;
+    ALTER TABLE detections ADD COLUMN img_crop_url TEXT;
+    ALTER TABLE detections ADD COLUMN img_overlay_url TEXT;
+    CREATE INDEX IF NOT EXISTS idx_detections_synced ON detections(synced, id);
+    """,
 ]
 
 

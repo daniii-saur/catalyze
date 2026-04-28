@@ -4,9 +4,10 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
+import cv2
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 import db
 
@@ -14,7 +15,11 @@ import db
 _VALID_SEVERITY = {"normal", "warning", "critical"}
 
 
-def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]]) -> FastAPI:
+def build_app(
+    captures_dir: Path,
+    status_provider: Callable[[], Dict[str, Any]],
+    frame_provider: Optional[Callable[[], Any]] = None,
+) -> FastAPI:
     app = FastAPI(title="Catalyze API")
 
     @app.get("/status")
@@ -58,6 +63,31 @@ def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]])
     def stats_by_day(days: int = Query(30, ge=1, le=365)):
         return {"items": db.stats_by_day(days=days)}
 
+    @app.get("/stream")
+    def mjpeg_stream():
+        if frame_provider is None:
+            raise HTTPException(status_code=503, detail="stream not available")
+
+        def generate():
+            while True:
+                frame = frame_provider()
+                if frame is None:
+                    import time; time.sleep(0.05)
+                    continue
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if not ok:
+                    continue
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+                    + buf.tobytes()
+                    + b"\r\n"
+                )
+                import time; time.sleep(0.1)  # ~10 fps
+
+        return StreamingResponse(
+            generate(), media_type="multipart/x-mixed-replace; boundary=frame"
+        )
+
     @app.get("/image/{filename}")
     def get_image(filename: str):
         # prevent path traversal
@@ -74,10 +104,11 @@ def build_app(captures_dir: Path, status_provider: Callable[[], Dict[str, Any]])
 def run_in_background(
     captures_dir: Path,
     status_provider: Callable[[], Dict[str, Any]],
+    frame_provider: Optional[Callable[[], Any]] = None,
     host: str = "0.0.0.0",
     port: int = 8000,
 ) -> threading.Thread:
-    app = build_app(captures_dir, status_provider)
+    app = build_app(captures_dir, status_provider, frame_provider)
     config = uvicorn.Config(app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
     t = threading.Thread(target=server.run, daemon=True)
