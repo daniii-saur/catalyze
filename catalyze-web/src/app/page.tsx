@@ -8,6 +8,7 @@ function formatTime(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
     month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Manila',
   })
 }
 
