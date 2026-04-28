@@ -75,7 +75,8 @@ def _sync_batch(client: Client, captures_dir: Path) -> int:
     for row in rows:
         rid = row["id"]
         try:
-            full_url  = _upload_image(client, str(captures_dir / row["image_full"]),  rid, "full")  if row.get("image_full")    else None
+            # full image stays local only — auto-deleted after 7 days by maintenance.py
+            full_url  = None
             crop_url  = _upload_image(client, str(captures_dir / row["image_crop"]),  rid, "crop")  if row.get("image_crop")    else None
             over_url  = _upload_image(client, str(captures_dir / row["image_overlay"]),rid,"overlay")if row.get("image_overlay") else None
 
