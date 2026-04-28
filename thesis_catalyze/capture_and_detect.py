@@ -247,7 +247,7 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
         elif state == "DIRTY":
             results = poop_model.predict(frame, imgsz=POOP_IMGSZ, conf=POOP_CONF, verbose=False)[0]
             poop_present = any(
-                poop_model.names[int(b.cls[0])] == POOP_CLASS for b in results.boxes
+                poop_model.names[int(b.cls[0])] in STOOL_CLASSES for b in results.boxes
             )
             with lock:
                 if poop_present:
