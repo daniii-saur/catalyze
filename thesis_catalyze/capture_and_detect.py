@@ -22,14 +22,14 @@ _HERE         = Path(__file__).parent
 CAT_WEIGHTS  = str(_HERE.parent / "yolov8n.pt")
 POOP_WEIGHTS = str(_HERE / "best.pt")
 CAT_CLASS    = "cat"
-POOP_CLASS   = "poop"
+STOOL_CLASSES = {"Soft", "Hard", "Watery"}
 CAT_CONF     = 0.25   # low — top-view cats score lower in COCO-trained model
 POOP_CONF    = 0.40
 CAT_IMGSZ    = 320
 POOP_IMGSZ   = 640
 CAPTURE_DIR  = _HERE.parent / "captures"
 DB_PATH      = CAPTURE_DIR / "catalyze.db"
-POOP_MODEL_VERSION = f"poop:{Path(POOP_WEIGHTS).name}"
+POOP_MODEL_VERSION = f"stool:{Path(POOP_WEIGHTS).name}"
 
 POLL_INTERVAL          = 4     # seconds between inference runs
 POST_CLEAN_COOLDOWN    = 30
@@ -95,6 +95,10 @@ def save_detection(frame, timestamp, detections):
 
     cv2.imwrite(str(full_path), frame)
 
+    # Derive stool class from the highest-confidence detection
+    best_det = max(detections, key=lambda d: d["confidence"]) if detections else {}
+    kind = best_det.get("class", "Soft")
+
     bbox = _tightest_bbox(detections)
     color_pcts = {}
     remark, severity = "No bbox available", "warning"
@@ -114,7 +118,7 @@ def save_detection(frame, timestamp, detections):
             cv2.imwrite(str(overlay_path), overlay_img)
             overlay_name = overlay_path.name
 
-            remark, severity = remark_engine.evaluate(color_pcts)
+            remark, severity = remark_engine.evaluate(color_pcts, kind=kind)
 
     json_path.write_text(json.dumps({
         "timestamp":  timestamp.isoformat(),
@@ -126,6 +130,7 @@ def save_detection(frame, timestamp, detections):
         "colors":     color_pcts,
         "remark":     remark,
         "severity":   severity,
+        "kind":       kind,
     }, indent=2))
 
     row_id = db.insert_detection(
@@ -138,6 +143,7 @@ def save_detection(frame, timestamp, detections):
         remark=remark,
         severity=severity,
         model_version=POOP_MODEL_VERSION,
+        kind=kind,
     )
 
     print(f"[{stamp}] Saved id={row_id} {full_path.name} severity={severity} colors={color_pcts}", flush=True)
@@ -219,7 +225,7 @@ def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
             detections = []
             for box in results.boxes:
                 cls_name = poop_model.names[int(box.cls[0])]
-                if cls_name != POOP_CLASS:
+                if cls_name not in STOOL_CLASSES:
                     continue
                 conf = float(box.conf[0])
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())

@@ -42,7 +42,14 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
 
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-2">
-        <SeverityBadge severity={d.severity} />
+        <div className="flex items-center gap-2">
+          <SeverityBadge severity={d.severity} />
+          {d.kind && (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 capitalize">
+              {d.kind}
+            </span>
+          )}
+        </div>
         <p className="text-gray-800 font-medium text-base">{d.remark ?? 'No remark'}</p>
         <p className="text-sm text-gray-500">{ts}</p>
       </div>

@@ -15,7 +15,7 @@ function formatTime(ts: string) {
   })
 }
 
-type Row = Pick<Detection, 'id' | 'timestamp' | 'severity' | 'remark' | 'image_crop'>
+type Row = Pick<Detection, 'id' | 'timestamp' | 'severity' | 'remark' | 'image_crop' | 'kind'>
 
 export default function HistoryPage() {
   const [filter, setFilter] = useState<Severity | null>(null)
@@ -28,7 +28,7 @@ export default function HistoryPage() {
     setLoading(true)
     let q = supabase
       .from('detections')
-      .select('id, timestamp, severity, remark, image_crop')
+      .select('id, timestamp, severity, remark, image_crop, kind')
       .order('timestamp', { ascending: false })
       .range(off, off + PAGE_SIZE - 1)
     if (sev) q = q.eq('severity', sev)
@@ -100,7 +100,12 @@ export default function HistoryPage() {
               <p className="text-sm text-gray-500">{formatTime(item.timestamp)}</p>
               <p className="text-sm text-gray-800 truncate">{item.remark ?? '—'}</p>
             </div>
-            <SeverityBadge severity={item.severity} />
+            <div className="flex flex-col items-end gap-1">
+              <SeverityBadge severity={item.severity} />
+              {item.kind && (
+                <span className="text-xs text-blue-700 font-medium capitalize">{item.kind}</span>
+              )}
+            </div>
           </Link>
         ))}
 

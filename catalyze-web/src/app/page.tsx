@@ -61,9 +61,16 @@ export default async function DashboardPage() {
         {latest ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
             <div className="flex items-start justify-between gap-2">
-              <div>
-                <SeverityBadge severity={latest.severity} />
-                <p className="text-sm text-gray-500 mt-1">{formatTime(latest.timestamp)}</p>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <SeverityBadge severity={latest.severity} />
+                  {latest.kind && (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 capitalize">
+                      {latest.kind}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500">{formatTime(latest.timestamp)}</p>
               </div>
             </div>
 
