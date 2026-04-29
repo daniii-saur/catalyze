@@ -1,22 +1,38 @@
-import { createClient } from '@supabase/supabase-js'
+/**
+ * Shared Supabase client + types.
+ * - In Server Components / Route Handlers: import from './supabase-server'
+ * - In Client Components: import from './supabase-browser'
+ * This file keeps the `supabase` export for any legacy import sites.
+ */
+import { createClient } from './supabase-browser'
+export const supabase = createClient()
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+// ── Types ────────────────────────────────────────────────────────────────────
 
-export type Detection = {
+export type Severity = 'normal' | 'warning' | 'critical'
+
+/** Map the database `kind` value to a user-facing consistency label. */
+export function displayKind(kind: string | null | undefined): string {
+  switch (kind) {
+    case 'Hard':   return 'Firm'
+    case 'Soft':   return 'Soft'
+    case 'Watery': return 'Watery'
+    default:       return 'General'
+  }
+}
+
+export interface Detection {
   id: number
   local_id: number | null
   timestamp: string
-  kind: string
+  kind: string | null
   bbox_json: string | null
   red_pct: number | null
   yellow_pct: number | null
   green_pct: number | null
   brown_pct: number | null
   remark: string | null
-  severity: 'normal' | 'warning' | 'critical' | null
+  severity: Severity | null
   model_version: string | null
   image_full: string | null
   image_crop: string | null
@@ -24,4 +40,10 @@ export type Detection = {
   created_at: string | null
 }
 
-export type Severity = 'normal' | 'warning' | 'critical'
+export interface Profile {
+  id: string
+  display_name: string | null
+  email: string | null
+  notify_email: boolean
+  created_at: string | null
+}

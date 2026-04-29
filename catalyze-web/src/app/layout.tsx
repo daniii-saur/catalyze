@@ -1,5 +1,5 @@
-import type { Metadata } from 'next'
-import { Nav } from '@/components/Nav'
+import type { Metadata, Viewport } from 'next'
+import { BottomNav } from '@/components/BottomNav'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -7,12 +7,19 @@ export const metadata: Metadata = {
   description: 'Automated litterbox detection dashboard',
 }
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  themeColor: '#F97316',
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <Nav />
-        <main className="max-w-2xl mx-auto px-4 py-6">{children}</main>
+        <main className="max-w-lg mx-auto px-4 pt-4 pb-24">{children}</main>
+        <BottomNav />
       </body>
     </html>
   )

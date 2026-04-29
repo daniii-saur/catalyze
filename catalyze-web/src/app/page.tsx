@@ -1,8 +1,7 @@
 import Link from 'next/link'
-import { supabase, type Detection } from '@/lib/supabase'
-import { SeverityBadge } from '@/components/SeverityBadge'
-import { ColorBar } from '@/components/ColorBar'
-import { DetectionImage } from '@/components/DetectionImage'
+import { createClient } from '@/lib/supabase-server'
+import { displayKind, type Detection } from '@/lib/supabase'
+import { ConsistencyBadge } from '@/components/ConsistencyBadge'
 
 function formatTime(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -12,133 +11,59 @@ function formatTime(ts: string) {
   })
 }
 
-async function getLatest(): Promise<Detection | null> {
-  const { data } = await supabase
-    .from('detections')
-    .select('*')
-    .order('timestamp', { ascending: false })
-    .limit(1)
-    .single()
-  return data
-}
-
-async function getTodayEvents(): Promise<{ id: number; severity: string | null }[]> {
-  const today = new Date().toISOString().slice(0, 10)
-  const { data } = await supabase
-    .from('detections')
-    .select('id, severity')
-    .gte('timestamp', today)
-  return (data ?? []) as { id: number; severity: string | null }[]
-}
-
-async function getRecent(): Promise<Pick<Detection, 'id' | 'timestamp' | 'severity' | 'remark' | 'image_crop'>[]> {
-  const { data } = await supabase
-    .from('detections')
-    .select('id, timestamp, severity, remark, image_crop')
-    .order('timestamp', { ascending: false })
-    .limit(10)
-  return data ?? []
-}
-
 export default async function DashboardPage() {
-  const [latest, todayEvents, recent] = await Promise.all([
-    getLatest(),
-    getTodayEvents(),
-    getRecent(),
+  const supabase = createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  const displayName = user?.user_metadata?.display_name ?? user?.email?.split('@')[0] ?? 'there'
+
+  const today = new Date().toISOString().slice(0, 10)
+  const [{ count }, { data: recent }] = await Promise.all([
+    supabase
+      .from('detections')
+      .select('*', { count: 'exact', head: true })
+      .gte('timestamp', today),
+    supabase
+      .from('detections')
+      .select('id, timestamp, kind, image_crop')
+      .order('timestamp', { ascending: false })
+      .limit(5),
   ])
 
-  const counts = { normal: 0, warning: 0, critical: 0 }
-  for (const e of todayEvents) {
-    const s = e.severity
-    if (s === 'normal' || s === 'warning' || s === 'critical') counts[s]++
-  }
+  const todayCount = count ?? 0
 
   return (
     <div className="space-y-6">
-      {/* Latest detection */}
+      {/* Welcome */}
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Latest Detection</h2>
-        {latest ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <SeverityBadge severity={latest.severity} />
-                  {latest.kind && (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 capitalize">
-                      {latest.kind}
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-gray-500">{formatTime(latest.timestamp)}</p>
-              </div>
-            </div>
-
-            {latest.remark && (
-              <p className="text-gray-800 font-medium">{latest.remark}</p>
-            )}
-
-            {/* Images */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">Photo</p>
-                <DetectionImage src={latest.image_crop} alt="crop" className="aspect-square w-full" />
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-gray-400">Color overlay</p>
-                <DetectionImage src={latest.image_overlay} alt="overlay" className="aspect-square w-full" />
-              </div>
-            </div>
-
-            {/* Color bars */}
-            <div className="space-y-2 pt-1">
-              <ColorBar label="Red"    pct={latest.red_pct}    color="red"    />
-              <ColorBar label="Yellow" pct={latest.yellow_pct} color="yellow" />
-              <ColorBar label="Green"  pct={latest.green_pct}  color="green"  />
-              <ColorBar label="Brown"  pct={latest.brown_pct}  color="brown"  />
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center text-gray-400">
-            No detections yet
-          </div>
-        )}
+        <h1 className="text-xl font-bold text-gray-900">Welcome, {displayName}!</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Here&apos;s today&apos;s overview</p>
       </section>
 
-      {/* Today summary */}
-      <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Today</h2>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-          <p className="text-2xl font-bold text-gray-900 mb-3">{todayEvents.length} events</p>
-          <div className="flex gap-2 flex-wrap">
-            <span className="px-3 py-1 rounded-full text-sm bg-green-100 text-green-800">
-              {counts.normal} normal
-            </span>
-            <span className="px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-800">
-              {counts.warning} warning
-            </span>
-            <span className="px-3 py-1 rounded-full text-sm bg-red-100 text-red-800">
-              {counts.critical} critical
-            </span>
-          </div>
+      {/* Today event count circle */}
+      <section className="flex justify-center">
+        <div className="relative w-36 h-36 rounded-full bg-brand-50 border-4 border-brand-500 flex flex-col items-center justify-center">
+          <span className="text-3xl">🐱</span>
+          <span className="text-3xl font-bold text-brand-600">{todayCount}</span>
+          <span className="text-xs text-gray-500">today&apos;s events</span>
         </div>
       </section>
 
-      {/* Recent list */}
+      {/* Recent detections */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Recent</h2>
-          <Link href="/history" className="text-sm text-blue-600 hover:underline">See all →</Link>
+          <Link href="/activity" className="text-sm text-brand-600 font-medium hover:underline">See all →</Link>
         </div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-50">
-          {recent.length === 0 && (
-            <p className="p-5 text-gray-400 text-sm">No history yet</p>
+          {(!recent || recent.length === 0) && (
+            <p className="p-8 text-center text-gray-400 text-sm">No detections yet</p>
           )}
-          {recent.map(item => (
+          {recent?.map(item => (
             <Link
               key={item.id}
-              href={`/history/${item.id}`}
-              className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition-colors"
+              href={`/activity/${item.id}`}
+              className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
             >
               <div className="relative w-10 h-10 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
                 {item.image_crop && (
@@ -147,10 +72,10 @@ export default async function DashboardPage() {
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-500 truncate">{formatTime(item.timestamp)}</p>
-                <p className="text-sm text-gray-800 truncate">{item.remark ?? '—'}</p>
+                <p className="text-sm text-gray-800 font-medium">{displayKind(item.kind)}</p>
+                <p className="text-xs text-gray-400">{formatTime(item.timestamp)}</p>
               </div>
-              <SeverityBadge severity={item.severity} />
+              <ConsistencyBadge kind={item.kind} />
             </Link>
           ))}
         </div>
