@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public routes that don't require auth
-  const publicRoutes = ['/login', '/auth/callback', '/privacy', '/tos']
+  const publicRoutes = ['/login', '/signup', '/auth/callback', '/privacy', '/tos']
   const isPublicRoute = publicRoutes.some(r => pathname.startsWith(r))
 
   if (!user && !isPublicRoute) {
@@ -41,7 +41,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && pathname === '/login') {
+  if (user && (pathname === '/login' || pathname === '/signup')) {
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
