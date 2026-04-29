@@ -67,7 +67,8 @@ export default function SignupPage() {
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
         <div className="text-center">
-          <div className="text-5xl mb-3">🐱</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Catalyze" className="w-20 h-20 mx-auto mb-3" />
           <h1 className="text-2xl font-bold text-gray-900">Create Account</h1>
           <p className="text-sm text-gray-500 mt-1">Get started with Catalyze</p>
         </div>
