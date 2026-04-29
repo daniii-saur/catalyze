@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase-server'
 import { displayKind, type Detection } from '@/lib/supabase'
 import { ConsistencyBadge } from '@/components/ConsistencyBadge'
+import { SeverityBadge } from '@/components/SeverityBadge'
 
 function formatTime(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -25,7 +26,7 @@ export default async function DashboardPage() {
       .gte('timestamp', today),
     supabase
       .from('detections')
-      .select('id, timestamp, kind, image_crop')
+      .select('id, timestamp, kind, severity, remark, image_crop')
       .order('timestamp', { ascending: false })
       .limit(5),
   ])
@@ -75,7 +76,12 @@ export default async function DashboardPage() {
                 <p className="text-sm text-gray-800 font-medium">{displayKind(item.kind)}</p>
                 <p className="text-xs text-gray-400">{formatTime(item.timestamp)}</p>
               </div>
-              <ConsistencyBadge kind={item.kind} />
+              <div className="flex flex-col items-end gap-1">
+                <ConsistencyBadge kind={item.kind} />
+                {item.severity && item.severity !== 'normal' && (
+                  <SeverityBadge severity={item.severity as Detection['severity']} />
+                )}
+              </div>
             </Link>
           ))}
         </div>
