@@ -17,6 +17,14 @@ const config: Config = {
           800: '#9A3412',
           900: '#7C2D12',
         },
+        sky: {
+          nav: '#90D9FB',
+          bg:  '#8FD9FB',
+        },
+        accent: {
+          orange: '#E28331',
+          'orange-dark': '#A92804',
+        },
       },
     },
   },

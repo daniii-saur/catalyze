@@ -3,7 +3,10 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  background: linear-gradient(180deg, #8FD9FB 0%, #ffffff 100%);
+  background-attachment: fixed;
+  color: #404040;
+  font-family: 'Roboto', sans-serif;
 }
 
 .pb-safe {
