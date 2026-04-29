@@ -21,7 +21,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6 pb-8">
-      <h1 className="text-xl font-bold text-gray-900">Settings</h1>
+      <h1 className="text-xl font-bold text-gray-900 text-center">Settings</h1>
 
       {/* Profile card */}
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">

@@ -56,7 +56,7 @@ export default function TrendsPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-lg font-semibold text-gray-900">14-Day Trends</h1>
+      <h1 className="text-lg font-semibold text-gray-900 text-center">14-Day Trends</h1>
 
       {/* Frequency bar chart */}
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">

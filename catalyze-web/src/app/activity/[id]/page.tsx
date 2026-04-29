@@ -30,15 +30,25 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
     <div className="space-y-5">
       <Link href="/activity" className="text-sm text-brand-600 font-medium hover:underline">← Back to Activity</Link>
 
-      {/* Images */}
+      {/* Two-phase images */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
-          <p className="text-xs text-gray-400">Photo</p>
-          <DetectionImage src={d.image_crop} alt="crop" className="aspect-square w-full" />
+          <p className="text-xs text-gray-500 font-medium text-center">Cat (entering)</p>
+          <DetectionImage
+            src={(d as Record<string, unknown>).image_cat as string | null ?? null}
+            alt="Cat entering litterbox"
+            className="aspect-square w-full"
+            emptyLabel="No cat photo"
+          />
         </div>
         <div className="space-y-1">
-          <p className="text-xs text-gray-400">Color segmentation</p>
-          <DetectionImage src={d.image_overlay} alt="overlay" className="aspect-square w-full" />
+          <p className="text-xs text-gray-500 font-medium text-center">Poop (after exit)</p>
+          <DetectionImage
+            src={(d as Record<string, unknown>).image_poop as string | null ?? d.image_crop ?? null}
+            alt="Poop after cat exit"
+            className="aspect-square w-full"
+            emptyLabel="No poop photo"
+          />
         </div>
       </div>
 
@@ -54,7 +64,7 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
 
       {/* Color breakdown */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Color breakdown</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 text-center">Color breakdown</h2>
         <ColorBar label="Red"    pct={d.red_pct}    color="red"    />
         <ColorBar label="Yellow" pct={d.yellow_pct} color="yellow" />
         <ColorBar label="Green"  pct={d.green_pct}  color="green"  />
@@ -63,7 +73,7 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
 
       {/* Info */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Info</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 text-center">Info</h2>
         <dl className="text-sm space-y-1">
           <div className="flex gap-2">
             <dt className="text-gray-500 w-28">Detection ID</dt>

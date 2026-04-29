@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { supabase, displayKind, type Detection } from '@/lib/supabase'
+import { supabase, type Detection } from '@/lib/supabase'
 import { ConsistencyBadge } from '@/components/ConsistencyBadge'
+import { SeverityBadge } from '@/components/SeverityBadge'
 
 const PAGE_SIZE = 20
 
@@ -15,7 +16,7 @@ function formatTime(ts: string) {
   })
 }
 
-type Row = Pick<Detection, 'id' | 'timestamp' | 'kind' | 'image_crop'>
+type Row = Pick<Detection, 'id' | 'timestamp' | 'kind' | 'severity' | 'remark'>
 
 type ConsistencyFilter = 'All' | 'Firm' | 'Soft' | 'Watery'
 
@@ -37,7 +38,7 @@ export default function ActivityPage() {
     setLoading(true)
     let q = supabase
       .from('detections')
-      .select('id, timestamp, kind, image_crop')
+      .select('id, timestamp, kind, severity, remark')
       .order('timestamp', { ascending: false })
       .range(off, off + PAGE_SIZE - 1)
 
@@ -67,10 +68,10 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-gray-900">Activity Log</h1>
+      <h1 className="text-lg font-semibold text-gray-900 text-center">Activity Log</h1>
 
       {/* Consistency filter pills */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-2 flex-wrap justify-center">
         {filters.map(f => (
           <button
             key={f}
@@ -97,17 +98,21 @@ export default function ActivityPage() {
             href={`/activity/${item.id}`}
             className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
           >
-            <div className="relative w-12 h-12 flex-shrink-0 rounded-lg overflow-hidden bg-gray-100">
-              {item.image_crop && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={item.image_crop} alt="" className="w-full h-full object-cover" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-400 mb-1">{formatTime(item.timestamp)}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <ConsistencyBadge kind={item.kind} />
+                {item.severity && item.severity !== 'normal' && (
+                  <SeverityBadge severity={item.severity as Detection['severity']} />
+                )}
+              </div>
+              {item.remark && (
+                <p className="text-xs text-gray-500 mt-1 truncate">{item.remark}</p>
               )}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-800">{displayKind(item.kind)}</p>
-              <p className="text-xs text-gray-400">{formatTime(item.timestamp)}</p>
-            </div>
-            <ConsistencyBadge kind={item.kind} />
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-gray-300 flex-shrink-0">
+              <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+            </svg>
           </Link>
         ))}
 

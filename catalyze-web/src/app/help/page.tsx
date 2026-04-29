@@ -1,7 +1,7 @@
 export default function HelpPage() {
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-gray-900">Help</h1>
+      <h1 className="text-lg font-semibold text-gray-900 text-center">Help</h1>
 
       {/* About */}
       <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-2">

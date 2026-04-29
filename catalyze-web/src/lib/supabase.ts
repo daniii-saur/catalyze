@@ -34,6 +34,8 @@ export interface Detection {
   remark: string | null
   severity: Severity | null
   model_version: string | null
+  image_cat: string | null
+  image_poop: string | null
   image_full: string | null
   image_crop: string | null
   image_overlay: string | null
