@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase-server'
 import { displayKind } from '@/lib/supabase'
 import { ConsistencyBadge } from '@/components/ConsistencyBadge'
+import { SeverityBadge } from '@/components/SeverityBadge'
 import { ColorBar } from '@/components/ColorBar'
 import { DetectionImage } from '@/components/DetectionImage'
 
@@ -25,11 +26,6 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
     timeZone: 'Asia/Manila',
   })
 
-  const remark = `Detection recorded on ${new Date(d.timestamp).toLocaleDateString('en-PH', {
-    month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: 'Asia/Manila',
-  })}`
-
   return (
     <div className="space-y-5">
       <Link href="/activity" className="text-sm text-brand-600 font-medium hover:underline">← Back to Activity</Link>
@@ -48,10 +44,11 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
 
       {/* Header */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ConsistencyBadge kind={d.kind} />
+          <SeverityBadge severity={d.severity} />
         </div>
-        <p className="text-gray-600 text-sm">{remark}</p>
+        {d.remark && <p className="text-gray-700 text-sm leading-relaxed">{d.remark}</p>}
         <p className="text-xs text-gray-400">{ts}</p>
       </div>
 
