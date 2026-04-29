@@ -26,7 +26,7 @@ export function BottomNav() {
         {/* Activity Log */}
         <Link
           href="/activity"
-          className="flex flex-col items-center justify-end gap-0.5"
+          className="flex flex-col items-center justify-end gap-0.5 opacity-60 hover:opacity-80 transition-opacity"
           style={{ width: 51, height: 56 }}
         >
           <svg
@@ -51,13 +51,13 @@ export function BottomNav() {
           style={{ width: 65, height: 85, marginBottom: -6 }}
         >
           <div
-            className="flex items-center justify-center"
+            className="flex items-center justify-center opacity-0 animate-pulseScale"
             style={{
               width: 65,
               height: 65,
               borderRadius: '50%',
-              background: '#E28331',
-              border: '3px solid white',
+              background: 'linear-gradient(135deg, #E28331, #C96A1F)',
+              boxShadow: '0 6px 20px rgba(226,131,49,0.35)',
               flexShrink: 0,
             }}
           >
@@ -70,7 +70,7 @@ export function BottomNav() {
         {/* Profile */}
         <Link
           href="/settings"
-          className="flex flex-col items-center justify-end gap-0.5"
+          className="flex flex-col items-center justify-end gap-0.5 opacity-60 hover:opacity-80 transition-opacity"
           style={{ width: 51, height: 56 }}
         >
           <svg

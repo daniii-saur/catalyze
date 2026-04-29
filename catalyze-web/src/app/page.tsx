@@ -16,16 +16,16 @@ function formatDateLabel(ts: string) {
   })
 }
 
-const CONSISTENCY_COLORS: Record<string, string> = {
-  Hard:   '#BCFD18',
-  Soft:   '#67E15E',
-  Watery: '#80FFDD',
-}
-
 const CONSISTENCY_LABELS: Record<string, string> = {
   Hard:   'Hard',
   Soft:   'Soft',
   Watery: 'Watery',
+}
+
+const CONSISTENCY_BAR_COLORS: Record<string, string> = {
+  Hard:   '#5CB11A',
+  Soft:   '#EE7B00',
+  Watery: '#B52E2E',
 }
 
 function ConsistencyBars({ counts }: { counts: Record<string, number> }) {
@@ -33,24 +33,26 @@ function ConsistencyBars({ counts }: { counts: Record<string, number> }) {
   const kinds = ['Hard', 'Soft', 'Watery']
 
   return (
-    <div className="flex flex-col gap-[3px]">
+    <div className="flex flex-col gap-1">
       {kinds.map(k => {
-        const pct = total > 0 ? Math.round((counts[k] ?? 0) / total * 100) : 0
-        const barWidth = total > 0 ? Math.max((counts[k] ?? 0) / total * 100, 3) : 3
+        const pct = total > 0 ? (counts[k] ?? 0) / total * 100 : 0
         return (
-          <div key={k} className="flex items-center gap-1.5">
-            <div
-              className="rounded-sm"
-              style={{
-                width: `${barWidth * 1.13}px`,
-                height: '11px',
-                background: `linear-gradient(90deg, ${CONSISTENCY_COLORS[k]} 0%, #ffffff 100%)`,
-                border: '1px solid #C1C1C1',
-                minWidth: '4px',
-                maxWidth: '113px',
-              }}
-            />
-            <span className="text-[9px] text-[#404040] w-4 text-right">{counts[k] ?? 0}</span>
+          <div key={k} className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold w-10 text-right flex-shrink-0" style={{ color: '#404040' }}>
+              {k}
+            </span>
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#F0F0F0' }}>
+              <div
+                className="h-full rounded-full transition-all duration-700 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: CONSISTENCY_BAR_COLORS[k],
+                }}
+              />
+            </div>
+            <span className="text-[11px] font-semibold w-4 text-left flex-shrink-0" style={{ color: '#404040' }}>
+              {counts[k] ?? 0}
+            </span>
           </div>
         )
       })}
@@ -67,12 +69,12 @@ function ColorDots({ colors }: { colors: { brown: number; orange: number; green:
   ].sort((a, b) => b.value - a.value)
 
   return (
-    <div className="flex gap-[6px]">
+    <div className="flex items-center gap-1.5 mt-0.5">
       {sorted.map((d, i) => (
         <div
           key={i}
-          className="rounded-full border border-white"
-          style={{ width: 18, height: 18, backgroundColor: d.color }}
+          className="w-4 h-4 rounded-full border border-white"
+          style={{ backgroundColor: d.color, boxShadow: '0 0 0 0.5px rgba(0,0,0,0.08)' }}
         />
       ))}
     </div>
@@ -83,8 +85,8 @@ function ConsistencyTag({ kind }: { kind: string | null }) {
   const label = kind ? (CONSISTENCY_LABELS[kind] ?? kind) : 'Unknown'
   return (
     <span
-      className="text-[10px] text-[#404040] px-[5px] py-[1px]"
-      style={{ background: '#9BF5FF', borderRadius: 14, display: 'inline-block' }}
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold w-fit"
+      style={{ backgroundColor: '#9BF5FF', color: '#404040', letterSpacing: '-0.02em' }}
     >
       {label}
     </span>
@@ -112,7 +114,6 @@ export default async function DashboardPage() {
 
   const cycles = todayCount ?? 0
 
-  // Aggregate color percentages for today
   const colorAvg = { brown: 0, orange: 0, green: 0, red: 0 }
   if (todayData && todayData.length > 0) {
     const n = todayData.length
@@ -124,7 +125,6 @@ export default async function DashboardPage() {
     }
   }
 
-  // Consistency counts for today
   const consistencyCounts: Record<string, number> = { Hard: 0, Soft: 0, Watery: 0 }
   if (todayData) {
     for (const d of todayData) {
@@ -136,159 +136,164 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <header className="flex items-center gap-2 px-0.5">
+      {/* Header — fadeInUp immediately */}
+      <header className="flex items-center gap-3 px-0.5 opacity-0 animate-fadeInUp">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Catalyze" className="w-[30px] h-[34px] object-contain" />
-        <h1 className="text-base font-semibold text-[#404040]">Dashboard</h1>
+        <img src="/logo.png" alt="Catalyze" className="w-8 h-8 object-contain flex-shrink-0" />
+        <h1
+          className="text-[28px] font-semibold tracking-tight"
+          style={{ color: '#404040', letterSpacing: '-0.02em' }}
+        >
+          Dashboard
+        </h1>
       </header>
 
-      {/* Daily Activity Overview Card */}
+      {/* Stats card — fadeInUp, slight delay */}
       <section
-        className="bg-white w-full"
-        style={{ borderRadius: 20, boxShadow: '0 4px 4px rgba(0,0,0,0.25)', padding: '16px' }}
+        className="bg-white mx-0 opacity-0 animate-fadeInUp animation-delay-100"
+        style={{ borderRadius: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.06)', padding: '16px' }}
       >
-        {/* Card header row */}
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <p className="text-base font-semibold" style={{ color: '#34C759' }}>Today</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[11px] text-[#404040] font-medium">Daily Activity Overview</p>
-            <p className="text-[11px] font-medium" style={{ color: '#34C759' }}>{todayLabel}</p>
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div className="flex items-center gap-4">
+        {/* Top row: Cleaning Cycles + Activity Overview */}
+        <div className="flex gap-4">
           {/* Cleaning Cycles */}
-          <div
-            className="flex flex-col items-center justify-center flex-shrink-0"
-            style={{ width: 78 }}
-          >
-            <span className="text-[42px] font-bold text-[#404040] leading-none">
+          <div className="flex-1 flex flex-col justify-center">
+            <span className="text-lg font-semibold" style={{ color: '#2ECC71', letterSpacing: '-0.02em' }}>
+              Today
+            </span>
+            <span className="text-5xl font-bold leading-tight" style={{ color: '#404040', letterSpacing: '-0.03em' }}>
               {String(cycles).padStart(2, '0')}
             </span>
-            <span className="text-[10px] font-semibold mt-0.5" style={{ color: '#EE7B00' }}>
+            <span className="text-[11px] font-semibold" style={{ color: '#666666' }}>
               Cleaning Cycles
             </span>
           </div>
 
-          {/* Divider */}
-          <div className="w-px bg-gray-200 self-stretch mx-1" />
+          {/* Activity Overview + Consistency */}
+          <div className="flex-[1.3]">
+            <h3 className="text-base font-semibold leading-tight" style={{ color: '#404040', letterSpacing: '-0.02em' }}>
+              Daily Activity Overview
+            </h3>
+            <p className="text-xs mb-2" style={{ color: '#666666' }}>{todayLabel}</p>
+            <ConsistencyBars counts={consistencyCounts} />
+            <p className="text-[11px] font-semibold text-center mt-1" style={{ color: '#E28331' }}>
+              Consistency
+            </p>
+          </div>
+        </div>
 
-          {/* Detected Colors */}
-          <div className="flex flex-col items-center gap-1 flex-shrink-0">
-            <ColorWheelChart
-              brown={Math.round(colorAvg.brown)}
-              orange={Math.round(colorAvg.orange)}
-              green={Math.round(colorAvg.green)}
-              red={Math.round(colorAvg.red)}
-            />
-            <span className="text-[10px] font-semibold" style={{ color: '#EE7B00' }}>
+        {/* Divider */}
+        <div className="my-3 h-px" style={{ backgroundColor: '#F0F0F0' }} />
+
+        {/* Bottom row: Donut chart + Color indicators */}
+        <div className="flex gap-4 items-center">
+          {/* Donut chart */}
+          <div className="flex-1 flex flex-col items-center">
+            <div className="relative w-20 h-20">
+              <ColorWheelChart
+                brown={Math.round(colorAvg.brown)}
+                orange={Math.round(colorAvg.orange)}
+                green={Math.round(colorAvg.green)}
+                red={Math.round(colorAvg.red)}
+              />
+            </div>
+            <span className="text-[11px] font-semibold mt-1" style={{ color: '#E28331' }}>
               Detected Colors
             </span>
           </div>
 
-          {/* Divider */}
-          <div className="w-px bg-gray-200 self-stretch mx-1" />
-
-          {/* Consistency */}
-          <div className="flex flex-col gap-1 flex-1">
-            <div className="flex items-start gap-2">
-              {/* Tag labels */}
-              <div className="flex flex-col gap-[5px] flex-shrink-0">
-                {['Hard', 'Soft', 'Watery'].map(k => (
-                  <span
-                    key={k}
-                    className="text-[9px] text-[#404040] text-right"
-                    style={{ minWidth: 32 }}
-                  >
-                    {k}
+          {/* Color legend + status */}
+          <div className="flex-[1.3]">
+            <div className="flex flex-col gap-1.5">
+              {[
+                { label: 'Brown',  color: '#7B3B00', value: Math.round(colorAvg.brown) },
+                { label: 'Orange', color: '#EE7B00', value: Math.round(colorAvg.orange) },
+                { label: 'Green',  color: '#5CB11A', value: Math.round(colorAvg.green) },
+                { label: 'Red',    color: '#B52E2E', value: Math.round(colorAvg.red) },
+              ].map(item => (
+                <div key={item.label} className="flex items-center gap-2">
+                  <div
+                    className="w-3 h-3 rounded-full border border-white"
+                    style={{ backgroundColor: item.color, boxShadow: '0 0 0 1px rgba(255,255,255,0.8)' }}
+                  />
+                  <span className="text-xs font-medium" style={{ color: '#404040' }}>
+                    {item.value}%
                   </span>
-                ))}
-              </div>
-              <ConsistencyBars counts={consistencyCounts} />
+                </div>
+              ))}
             </div>
-            <span className="text-[10px] font-semibold" style={{ color: '#EE7B00' }}>
-              Consistency
-            </span>
+            <p className="text-sm font-medium mt-2 text-right" style={{ color: '#666666' }}>
+              {hasUnusual ? 'Unusual activity!' : 'No unusual activity!'}
+            </p>
           </div>
         </div>
-
-        {/* Status message */}
-        <p className="text-right text-[11px] mt-3" style={{ color: '#8C8C8C' }}>
-          {hasUnusual ? 'Unusual activity detected!' : 'No unusual activity!'}
-        </p>
       </section>
 
-      {/* Recent Detection */}
-      <section>
-        <h2 className="text-sm font-semibold text-[#404040] mb-2 px-0.5">Recent Detection:</h2>
+      {/* Recent Detection heading — fadeInUp, delay 200 */}
+      <h2
+        className="text-xl font-semibold px-0.5 opacity-0 animate-fadeInUp animation-delay-200"
+        style={{ color: '#404040', letterSpacing: '-0.02em' }}
+      >
+        Recent Detection:
+      </h2>
 
-        <div className="flex flex-col gap-[13px]">
-          {(!recent || recent.length === 0) && (
-            <div
-              className="bg-white flex items-center justify-center py-8"
-              style={{ borderRadius: 10, boxShadow: '0 4px 4px rgba(0,0,0,0.25)' }}
-            >
-              <p className="text-sm text-[#8C8C8C]">No detections yet</p>
-            </div>
-          )}
-
-          {recent?.map(item => {
-            const colors = {
-              brown:  item.brown_pct  ?? 0,
-              orange: item.yellow_pct ?? 0,
-              green:  item.green_pct  ?? 0,
-              red:    item.red_pct    ?? 0,
-            }
-            return (
-              <Link
-                key={item.id}
-                href={`/activity/${item.id}`}
-                className="bg-white flex items-center gap-3 px-4 py-[5px]"
-                style={{
-                  borderRadius: 10,
-                  boxShadow: '0 4px 4px rgba(0,0,0,0.25)',
-                  minHeight: 63,
-                }}
-              >
-                {/* Cat image */}
-                <div
-                  className="flex-shrink-0 overflow-hidden bg-gray-100"
-                  style={{ width: 53, height: 53, borderRadius: 6 }}
-                >
-                  {item.image_crop ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.image_crop} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src="/cat-icon-overview.png" alt="" className="w-full h-full object-cover" />
-                  )}
-                </div>
-
-                {/* Data */}
-                <div className="flex flex-col gap-[3px]">
-                  <p className="text-[12px] font-semibold text-[#404040]">
-                    {formatTime(item.timestamp)}
-                  </p>
-                  <ConsistencyTag kind={item.kind} />
-                  <ColorDots colors={colors} />
-                </div>
-              </Link>
-            )
-          })}
-        </div>
-
-        {recent && recent.length > 0 && (
-          <div className="mt-3 text-center">
-            <Link href="/activity" className="text-sm text-[#E28331] font-medium">
-              View all activity →
-            </Link>
+      {/* Cards */}
+      <div className="flex flex-col gap-3">
+        {(!recent || recent.length === 0) && (
+          <div
+            className="bg-white flex items-center justify-center py-8 opacity-0 animate-fadeInUp animation-delay-300"
+            style={{ borderRadius: 12, boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}
+          >
+            <p className="text-sm" style={{ color: '#666666' }}>No detections yet</p>
           </div>
         )}
-      </section>
+
+        {recent?.map((item, index) => {
+          const colors = {
+            brown:  item.brown_pct  ?? 0,
+            orange: item.yellow_pct ?? 0,
+            green:  item.green_pct  ?? 0,
+            red:    item.red_pct    ?? 0,
+          }
+          return (
+            <Link
+              key={item.id}
+              href={`/activity/${item.id}`}
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 hover:scale-[1.01] opacity-0 animate-fadeInUp"
+              style={{
+                backgroundColor: '#FFFFFF',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+                animationDelay: `${(index + 3) * 100}ms`,
+              }}
+            >
+              <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0" style={{ backgroundColor: '#F0F0F0' }}>
+                {item.image_crop ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={item.image_crop} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src="/cat-icon-overview.png" alt="" className="w-full h-full object-cover" />
+                )}
+              </div>
+
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-semibold" style={{ color: '#404040', letterSpacing: '-0.02em' }}>
+                  {formatTime(item.timestamp)}
+                </span>
+                <ConsistencyTag kind={item.kind} />
+                <ColorDots colors={colors} />
+              </div>
+            </Link>
+          )
+        })}
+      </div>
+
+      {recent && recent.length > 0 && (
+        <div className="text-center opacity-0 animate-fadeInUp animation-delay-500">
+          <Link href="/activity" className="text-sm font-medium" style={{ color: '#E28331' }}>
+            View all activity →
+          </Link>
+        </div>
+      )}
     </div>
   )
 }
