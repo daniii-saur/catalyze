@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { BottomNav } from '@/components/BottomNav'
+import { AppFooter } from '@/components/AppFooter'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -23,7 +24,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body>
-        <main className="max-w-lg mx-auto px-2.5 pt-5 pb-28 min-h-screen">{children}</main>
+        <main className="max-w-lg mx-auto px-2.5 pt-5 pb-28 min-h-screen">
+          {children}
+          <AppFooter />
+        </main>
         <BottomNav />
       </body>
     </html>

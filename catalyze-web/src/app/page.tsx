@@ -107,7 +107,7 @@ export default async function DashboardPage() {
       .gte('timestamp', todayStr),
     supabase
       .from('detections')
-      .select('id, timestamp, kind, image_crop, red_pct, yellow_pct, green_pct, brown_pct')
+      .select('id, timestamp, kind, image_cat, red_pct, yellow_pct, green_pct, brown_pct')
       .order('timestamp', { ascending: false })
       .limit(5),
   ])
@@ -266,12 +266,12 @@ export default async function DashboardPage() {
               }}
             >
               <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0" style={{ backgroundColor: '#F0F0F0' }}>
-                {item.image_crop ? (
+                {(item as Record<string, unknown>).image_cat ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={item.image_crop} alt="" className="w-full h-full object-cover" />
+                  <img src={(item as Record<string, unknown>).image_cat as string} alt="" className="w-full h-full object-cover" />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src="/cat-icon-overview.png" alt="" className="w-full h-full object-cover" />
+                  <img src="/cat-icon-overview.png" alt="" className="w-full h-full object-contain p-1" />
                 )}
               </div>
 

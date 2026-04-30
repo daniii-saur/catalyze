@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const hideOnRoutes = ['/login', '/signup', '/privacy', '/tos']
+const hideOnRoutes = ['/login', '/signup', '/privacy', '/tos', '/policy', '/terms']
 
 export function BottomNav() {
   const path = usePathname()
@@ -12,7 +12,7 @@ export function BottomNav() {
 
   const isHome     = path === '/'
   const isActivity = path.startsWith('/activity') || path.startsWith('/history')
-  const isProfile  = path.startsWith('/settings')
+  const isProfile  = path.startsWith('/profile') || path.startsWith('/settings')
 
   return (
     <nav
@@ -71,7 +71,7 @@ export function BottomNav() {
 
         {/* Profile */}
         <Link
-          href="/settings"
+          href="/profile"
           className="flex flex-col items-center justify-end gap-0.5 transition-opacity pb-2"
           style={{ width: 64, opacity: isProfile ? 1 : 0.55 }}
         >

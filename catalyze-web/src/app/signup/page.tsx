@@ -8,6 +8,7 @@ export default function SignupPage() {
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -15,6 +16,10 @@ export default function SignupPage() {
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
+    if (!agreedToTerms) {
+      setError('Please agree to the Terms of Service and Privacy Policy to continue.')
+      return
+    }
     setError(null)
     setLoading(true)
 
@@ -37,6 +42,10 @@ export default function SignupPage() {
   }
 
   async function handleGoogle() {
+    if (!agreedToTerms) {
+      setError('Please agree to the Terms of Service and Privacy Policy to continue.')
+      return
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -64,7 +73,7 @@ export default function SignupPage() {
 
   return (
     <div className="-mx-4 -mt-4 min-h-screen flex flex-col items-center justify-center px-6 bg-gray-50">
-      <div className="w-full max-w-sm space-y-8">
+      <div className="w-full max-w-sm space-y-6">
         {/* Logo */}
         <div className="text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -73,10 +82,37 @@ export default function SignupPage() {
           <p className="text-sm text-gray-500 mt-1">Get started with Catalyze</p>
         </div>
 
+        {/* T&C checkbox — must be checked before any sign-up method */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              id="terms"
+              checked={agreedToTerms}
+              onChange={e => {
+                setAgreedToTerms(e.target.checked)
+                if (e.target.checked) setError(null)
+              }}
+              className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500 flex-shrink-0"
+            />
+            <span className="text-sm text-gray-600 leading-relaxed">
+              I agree to the{' '}
+              <Link href="/terms" className="text-brand-600 font-medium hover:underline" target="_blank">
+                Terms of Service
+              </Link>
+              {' '}and{' '}
+              <Link href="/policy" className="text-brand-600 font-medium hover:underline" target="_blank">
+                Privacy Policy
+              </Link>
+            </span>
+          </label>
+        </div>
+
         {/* Google */}
         <button
           onClick={handleGoogle}
-          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          disabled={!agreedToTerms}
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
@@ -140,8 +176,8 @@ export default function SignupPage() {
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-brand-500 text-white rounded-xl text-sm font-semibold hover:bg-brand-600 transition-colors disabled:opacity-50"
+            disabled={loading || !agreedToTerms}
+            className="w-full py-3 bg-brand-500 text-white rounded-xl text-sm font-semibold hover:bg-brand-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Creating account…' : 'Create account'}
           </button>
@@ -150,13 +186,6 @@ export default function SignupPage() {
         <p className="text-center text-sm text-gray-500">
           Already have an account?{' '}
           <Link href="/login" className="text-brand-600 font-medium hover:underline">Sign in</Link>
-        </p>
-
-        <p className="text-center text-xs text-gray-400">
-          By signing up you agree to our{' '}
-          <Link href="/tos" className="hover:underline">Terms of Service</Link>
-          {' '}and{' '}
-          <Link href="/privacy" className="hover:underline">Privacy Policy</Link>
         </p>
       </div>
     </div>
