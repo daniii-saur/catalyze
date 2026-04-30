@@ -8,6 +8,7 @@ import { SeverityBadge } from '@/components/SeverityBadge'
 
 const PAGE_SIZE = 20
 
+/** Format ISO date string to Manila local time display */
 function formatTime(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
     month: 'short', day: 'numeric',
@@ -16,8 +17,12 @@ function formatTime(ts: string) {
   })
 }
 
-type Row = Pick<Detection, 'id' | 'timestamp' | 'kind' | 'severity' | 'remark'>
+/** Today's date in Asia/Manila as YYYY-MM-DD */
+function todayManila(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+}
 
+type Row = Pick<Detection, 'id' | 'timestamp' | 'kind' | 'severity' | 'remark'>
 type ConsistencyFilter = 'All' | 'Firm' | 'Soft' | 'Watery'
 
 const dbKind: Record<ConsistencyFilter, string | null> = {
@@ -28,17 +33,32 @@ const dbKind: Record<ConsistencyFilter, string | null> = {
 }
 
 export default function ActivityPage() {
+  const [selectedDate, setSelectedDate] = useState<string>(todayManila())
   const [filter, setFilter] = useState<ConsistencyFilter>('All')
   const [items, setItems] = useState<Row[]>([])
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
+  const [showPicker, setShowPicker] = useState(false)
 
-  const load = useCallback(async (f: ConsistencyFilter, off: number, replace: boolean) => {
+  const load = useCallback(async (
+    date: string,
+    f: ConsistencyFilter,
+    off: number,
+    replace: boolean,
+  ) => {
     setLoading(true)
+
+    // Build start/end of selected day in UTC for Supabase query
+    // Since data timestamps are stored as UTC, we cover the full Manila calendar day
+    const startUtc = new Date(`${date}T00:00:00+08:00`).toISOString()
+    const endUtc   = new Date(`${date}T23:59:59.999+08:00`).toISOString()
+
     let q = supabase
       .from('detections')
       .select('id, timestamp, kind, severity, remark')
+      .gte('timestamp', startUtc)
+      .lte('timestamp', endUtc)
       .order('timestamp', { ascending: false })
       .range(off, off + PAGE_SIZE - 1)
 
@@ -55,20 +75,71 @@ export default function ActivityPage() {
   useEffect(() => {
     setOffset(0)
     setHasMore(true)
-    load(filter, 0, true)
-  }, [filter, load])
+    load(selectedDate, filter, 0, true)
+  }, [selectedDate, filter, load])
 
   const loadMore = () => {
     const next = offset + PAGE_SIZE
     setOffset(next)
-    load(filter, next, false)
+    load(selectedDate, filter, next, false)
   }
+
+  function handleDateChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const val = e.target.value
+    if (val && val <= todayManila()) {
+      setSelectedDate(val)
+      setShowPicker(false)
+    }
+  }
+
+  const today = todayManila()
+  const isToday = selectedDate === today
+
+  const displayDate = new Date(`${selectedDate}T12:00:00`).toLocaleDateString('en-PH', {
+    weekday: 'short', month: 'long', day: 'numeric', year: 'numeric',
+  })
 
   const filters: ConsistencyFilter[] = ['All', 'Firm', 'Soft', 'Watery']
 
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold text-gray-900 text-center">Activity Log</h1>
+
+      {/* Date selector */}
+      <div className="relative flex items-center justify-center">
+        <button
+          onClick={() => setShowPicker(v => !v)}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-brand-300 transition-colors shadow-sm"
+        >
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-brand-500">
+            <path fillRule="evenodd" d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z" clipRule="evenodd" />
+          </svg>
+          <span>{isToday ? 'Today' : displayDate}</span>
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-gray-400">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+
+        {showPicker && (
+          <div className="absolute top-full mt-1 z-20 bg-white border border-gray-200 rounded-2xl shadow-lg p-3">
+            <input
+              type="date"
+              value={selectedDate}
+              max={today}
+              onChange={handleDateChange}
+              className="block px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            {selectedDate !== today && (
+              <button
+                onClick={() => { setSelectedDate(today); setShowPicker(false) }}
+                className="mt-2 w-full py-1.5 text-xs text-brand-600 font-medium hover:bg-brand-50 rounded-lg transition-colors"
+              >
+                Back to today
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Consistency filter pills */}
       <div className="flex gap-2 flex-wrap justify-center">
@@ -90,7 +161,12 @@ export default function ActivityPage() {
       {/* List */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 divide-y divide-gray-50">
         {items.length === 0 && !loading && (
-          <p className="p-8 text-center text-gray-400">No detections found</p>
+          <div className="p-8 text-center space-y-1">
+            <p className="text-gray-400 text-sm font-medium">No detections on this day</p>
+            {!isToday && (
+              <p className="text-gray-300 text-xs">{displayDate}</p>
+            )}
+          </div>
         )}
         {items.map(item => (
           <Link

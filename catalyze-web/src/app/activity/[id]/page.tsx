@@ -62,14 +62,26 @@ export default async function DetectionDetailPage({ params }: { params: { id: st
         <p className="text-xs text-gray-400">{ts}</p>
       </div>
 
-      {/* Color breakdown */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 text-center">Color breakdown</h2>
-        <ColorBar label="Red"    pct={d.red_pct}    color="red"    />
-        <ColorBar label="Yellow" pct={d.yellow_pct} color="yellow" />
-        <ColorBar label="Green"  pct={d.green_pct}  color="green"  />
-        <ColorBar label="Brown"  pct={d.brown_pct}  color="brown"  />
-      </div>
+      {/* Color breakdown — only show colors with a value > 0 */}
+      {(() => {
+        const bars = [
+          { label: 'Red',    pct: d.red_pct,    color: 'red'    },
+          { label: 'Yellow', pct: d.yellow_pct, color: 'yellow' },
+          { label: 'Green',  pct: d.green_pct,  color: 'green'  },
+          { label: 'Brown',  pct: d.brown_pct,  color: 'brown'  },
+        ].filter(b => (b.pct ?? 0) > 0)
+
+        if (bars.length === 0) return null
+
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 text-center">Color breakdown</h2>
+            {bars.map(b => (
+              <ColorBar key={b.label} label={b.label} pct={b.pct} color={b.color} />
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Info */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">

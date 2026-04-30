@@ -46,4 +46,4 @@ def evaluate(
     if brown >= BROWN_NORMAL and red < RED_SAFE_BELOW:
         return ("Soft stool — looks healthy.", "normal")
 
-    return ("Soft stool — inconclusive coloring, keep monitoring.", "warning")
+    return ("Soft stool — monitor for changes.", "warning")
