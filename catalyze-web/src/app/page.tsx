@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase-server'
 import { ColorWheelChart } from '@/components/ColorWheelChart'
+import { CleanNowButton } from '@/components/CleanNowButton'
 
 function formatTime(ts: string) {
   return new Date(ts).toLocaleString('en-PH', {
@@ -95,6 +96,10 @@ function ConsistencyTag({ kind }: { kind: string | null }) {
 
 export default async function DashboardPage() {
   const supabase = createClient()
+
+  // Get logged-in user for the Clean Now button
+  const { data: { user } } = await supabase.auth.getUser()
+  const userEmail = user?.email ?? null
 
   const now = new Date()
   const todayStr = now.toISOString().slice(0, 10)
@@ -228,9 +233,19 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Recent Detection heading — fadeInUp, delay 200 */}
+      {/* Clean Now — only shown to logged-in users */}
+      {userEmail && (
+        <section
+          className="bg-white mx-0 opacity-0 animate-fadeInUp animation-delay-200"
+          style={{ borderRadius: 20, boxShadow: '0 4px 16px rgba(0,0,0,0.06)', padding: '16px' }}
+        >
+          <CleanNowButton userEmail={userEmail} />
+        </section>
+      )}
+
+      {/* Recent Detection heading — fadeInUp, delay 300 */}
       <h2
-        className="text-xl font-semibold px-0.5 opacity-0 animate-fadeInUp animation-delay-200"
+        className="text-xl font-semibold px-0.5 opacity-0 animate-fadeInUp animation-delay-300"
         style={{ color: '#404040', letterSpacing: '-0.02em' }}
       >
         Recent Detection:
@@ -262,7 +277,7 @@ export default async function DashboardPage() {
               style={{
                 backgroundColor: '#FFFFFF',
                 boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
-                animationDelay: `${(index + 3) * 100}ms`,
+                animationDelay: `${(index + 4) * 100}ms`,
               }}
             >
               <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0" style={{ backgroundColor: '#F0F0F0' }}>
@@ -288,7 +303,7 @@ export default async function DashboardPage() {
       </div>
 
       {recent && recent.length > 0 && (
-        <div className="text-center opacity-0 animate-fadeInUp animation-delay-500">
+        <div className="text-center opacity-0 animate-fadeInUp" style={{ animationDelay: `${(Math.min((recent?.length ?? 0), 5) + 4) * 100}ms` }}>
           <Link href="/activity" className="text-sm font-medium" style={{ color: '#E28331' }}>
             View all activity →
           </Link>

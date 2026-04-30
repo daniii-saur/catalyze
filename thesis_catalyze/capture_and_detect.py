@@ -11,9 +11,11 @@ from picamera2 import Picamera2
 from ultralytics import YOLO
 
 import color_analyzer
+import command_poller
 import db
 import gallon_rotate
 import maintenance
+import motor
 import remark_engine
 import supabase_sync
 from api import run_in_background as run_api
@@ -35,10 +37,10 @@ POLL_INTERVAL          = 4     # seconds between inference runs
 POST_CLEAN_COOLDOWN    = 30
 FALLBACK_POOP_INTERVAL = 120   # fallback poop scan when no cat trigger
 
-# Motor cleaning cycle defaults (tunable; see gallon_rotate.py)
-MOTOR_DIRECTION = 1            # 1=CW, 0=CCW
-MOTOR_STEPS     = 2000
-MOTOR_DELAY     = gallon_rotate.STEP_DELAY
+# Motor cleaning cycle defaults — delegated to motor.py
+MOTOR_DIRECTION = motor.CLEAN_DIRECTION
+MOTOR_STEPS     = motor.CLEAN_STEPS
+MOTOR_DELAY     = motor.CLEAN_STEP_DELAY
 CROP_PADDING    = 20
 
 STATE_COLOR = {
@@ -152,19 +154,7 @@ def save_detection(frame, timestamp, detections):
 
 def trigger_motor(dry_run: bool):
     """Run cleaning cycle in a background thread so detection isn't blocked."""
-    def _run():
-        try:
-            gallon_rotate.rotate(
-                direction=MOTOR_DIRECTION,
-                steps=MOTOR_STEPS,
-                delay=MOTOR_DELAY,
-                simulate=dry_run,
-            )
-            print(f"[motor] cleaning cycle done (dry_run={dry_run})", flush=True)
-        except Exception as e:
-            print(f"[motor] cleaning cycle FAILED: {e}", flush=True)
-
-    threading.Thread(target=_run, daemon=True).start()
+    motor.trigger_cleaning_cycle_async(simulate=dry_run)
 
 
 def inference_loop(cat_model, poop_model, shared, lock, stop_event, dry_run):
@@ -280,8 +270,9 @@ def main():
     args = parse_args()
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     db.init(DB_PATH)
-    maint_thread, maint_stop = maintenance.start(CAPTURE_DIR, DB_PATH)
-    sync_thread, sync_stop = supabase_sync.start(CAPTURE_DIR)
+    maint_thread, maint_stop   = maintenance.start(CAPTURE_DIR, DB_PATH)
+    sync_thread,  sync_stop    = supabase_sync.start(CAPTURE_DIR)
+    cmd_thread,   cmd_stop     = command_poller.start(dry_run=args.dry_run)
 
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
@@ -359,9 +350,11 @@ def main():
         stop_event.set()
         maint_stop.set()
         sync_stop.set()
+        cmd_stop.set()
         infer_thread.join(timeout=15)
         maint_thread.join(timeout=5)
         sync_thread.join(timeout=5)
+        cmd_thread.join(timeout=5)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)
