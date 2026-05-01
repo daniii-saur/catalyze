@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional
 import cv2
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 import db
@@ -21,6 +22,14 @@ def build_app(
     frame_provider: Optional[Callable[[], Any]] = None,
 ) -> FastAPI:
     app = FastAPI(title="Catalyze API")
+
+    # Allow browser requests from any origin (needed for the live stream in the web app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET"],
+        allow_headers=["*"],
+    )
 
     @app.get("/status")
     def status():
