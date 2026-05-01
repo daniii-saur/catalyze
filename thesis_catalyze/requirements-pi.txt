@@ -7,6 +7,7 @@ ultralytics
 opencv-python
 fastapi
 uvicorn
+supabase
 # torch: install separately from the CPU index:
 #   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
 # picamera2: provided by apt (python3-picamera2), not pip

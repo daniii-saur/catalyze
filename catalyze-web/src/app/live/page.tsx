@@ -1,49 +1,103 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 const DEFAULT_STREAM_URL = process.env.NEXT_PUBLIC_PI_STREAM_URL ?? 'http://192.168.1.16:8000/stream'
-const STORAGE_KEY = 'catalyze_pi_stream_url'
+const SUPABASE_LIVE_URL  = process.env.NEXT_PUBLIC_SUPABASE_LIVE_URL
+  ?? 'https://xmwoplnoukaslunlmpqe.supabase.co/storage/v1/object/public/live-feed/latest.jpg'
+const STORAGE_KEY        = 'catalyze_pi_stream_url'
+const POLL_INTERVAL_MS   = 3000
 
+type Mode        = 'direct' | 'cloud'
 type StreamState = 'connecting' | 'live' | 'offline' | 'idle'
 
 export default function LivePage() {
-  const [url, setUrl] = useState('')
-  const [inputUrl, setInputUrl] = useState('')
+  const [mode, setMode]               = useState<Mode>('cloud')
+  const [url, setUrl]                 = useState('')
+  const [inputUrl, setInputUrl]       = useState('')
   const [streamState, setStreamState] = useState<StreamState>('idle')
-  const [showConfig, setShowConfig] = useState(false)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>()
+  const [showConfig, setShowConfig]   = useState(false)
+  const [cloudSrc, setCloudSrc]       = useState('')
+  const imgRef      = useRef<HTMLImageElement>(null)
+  const timeoutRef  = useRef<ReturnType<typeof setTimeout>>()
+  const pollRef     = useRef<ReturnType<typeof setInterval>>()
+  const cloudErrRef = useRef(0)  // consecutive cloud errors
 
-  // Load saved URL from localStorage on mount
+  // Load saved direct-stream URL
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY) ?? DEFAULT_STREAM_URL
     setUrl(saved)
     setInputUrl(saved)
   }, [])
 
-  // Auto-connect when url is set
-  useEffect(() => {
-    if (url) connect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url])
+  // ── Cloud mode polling ────────────────────────────────────────────
+  const startCloudPolling = useCallback(() => {
+    setStreamState('connecting')
+    cloudErrRef.current = 0
 
-  function connect() {
+    // kick first frame immediately
+    setCloudSrc(`${SUPABASE_LIVE_URL}?t=${Date.now()}`)
+
+    clearInterval(pollRef.current)
+    pollRef.current = setInterval(() => {
+      setCloudSrc(`${SUPABASE_LIVE_URL}?t=${Date.now()}`)
+    }, POLL_INTERVAL_MS)
+  }, [])
+
+  const stopCloudPolling = useCallback(() => {
+    clearInterval(pollRef.current)
+    pollRef.current = undefined
+  }, [])
+
+  useEffect(() => {
+    if (mode === 'cloud') {
+      stopDirectStream()
+      startCloudPolling()
+    } else {
+      stopCloudPolling()
+      if (url) startDirectStream()
+    }
+    return () => {
+      stopCloudPolling()
+      clearTimeout(timeoutRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, url])
+
+  // ── Cloud image callbacks ─────────────────────────────────────────
+  function handleCloudLoad() {
+    cloudErrRef.current = 0
+    setStreamState('live')
+  }
+
+  function handleCloudError() {
+    cloudErrRef.current += 1
+    if (cloudErrRef.current >= 3) {
+      setStreamState('offline')
+    }
+    // keep polling — device may come online
+  }
+
+  // ── Direct (same-network MJPEG) ───────────────────────────────────
+  function startDirectStream() {
     if (!url) return
     setStreamState('connecting')
     clearTimeout(timeoutRef.current)
-    // 8-second timeout to detect offline device
     timeoutRef.current = setTimeout(() => {
       setStreamState(prev => prev === 'connecting' ? 'offline' : prev)
     }, 8_000)
   }
 
-  function handleImgLoad() {
+  function stopDirectStream() {
+    clearTimeout(timeoutRef.current)
+  }
+
+  function handleDirectLoad() {
     clearTimeout(timeoutRef.current)
     setStreamState('live')
   }
 
-  function handleImgError() {
+  function handleDirectError() {
     clearTimeout(timeoutRef.current)
     setStreamState('offline')
   }
@@ -54,13 +108,20 @@ export default function LivePage() {
     localStorage.setItem(STORAGE_KEY, trimmed)
     setUrl(trimmed)
     setShowConfig(false)
-    connect()
+    if (mode === 'direct') startDirectStream()
   }
 
   function retry() {
     setStreamState('idle')
-    setTimeout(connect, 100)
+    if (mode === 'cloud') {
+      cloudErrRef.current = 0
+      setTimeout(startCloudPolling, 100)
+    } else {
+      setTimeout(startDirectStream, 100)
+    }
   }
+
+  const isLive = streamState === 'live'
 
   return (
     <div className="space-y-4">
@@ -77,8 +138,25 @@ export default function LivePage() {
         </button>
       </div>
 
-      {/* URL config panel */}
-      {showConfig && (
+      {/* Mode toggle */}
+      <div className="flex bg-gray-100 rounded-xl p-1 gap-1">
+        {(['cloud', 'direct'] as Mode[]).map(m => (
+          <button
+            key={m}
+            onClick={() => { setStreamState('idle'); setMode(m) }}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              mode === m
+                ? 'bg-white text-gray-800 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {m === 'cloud' ? '☁️  Cloud (any network)' : '📡  Direct (same WiFi)'}
+          </button>
+        ))}
+      </div>
+
+      {/* Direct URL config */}
+      {showConfig && mode === 'direct' && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-2">
           <p className="text-xs text-gray-500 font-medium">Pi stream URL</p>
           <div className="flex gap-2">
@@ -97,7 +175,7 @@ export default function LivePage() {
             </button>
           </div>
           <p className="text-[11px] text-gray-400">
-            Must be on the same WiFi network as the Pi to view the stream.
+            Must be on the same WiFi network as the Pi to view the direct stream.
           </p>
         </div>
       )}
@@ -107,16 +185,28 @@ export default function LivePage() {
         className="relative bg-black rounded-2xl overflow-hidden"
         style={{ aspectRatio: '16/9' }}
       >
-        {/* Stream image (always mounted so it can load) */}
-        {url && (
+        {/* Cloud mode: polling image */}
+        {mode === 'cloud' && cloudSrc && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cloudSrc}
+            alt="Live feed"
+            onLoad={handleCloudLoad}
+            onError={handleCloudError}
+            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${isLive ? 'opacity-100' : 'opacity-0'}`}
+          />
+        )}
+
+        {/* Direct mode: MJPEG */}
+        {mode === 'direct' && url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             ref={imgRef}
             src={streamState === 'idle' ? '' : `${url}?t=${Date.now()}`}
             alt="Live feed"
-            onLoad={handleImgLoad}
-            onError={handleImgError}
-            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${streamState === 'live' ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={handleDirectLoad}
+            onError={handleDirectError}
+            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${isLive ? 'opacity-100' : 'opacity-0'}`}
           />
         )}
 
@@ -140,8 +230,10 @@ export default function LivePage() {
             <div>
               <p className="text-white font-semibold text-sm">Device not reachable</p>
               <p className="text-gray-400 text-xs mt-1">
-                Make sure you&apos;re on the same WiFi as the Pi,<br />
-                and the detection loop is running.
+                {mode === 'cloud'
+                  ? 'Make sure the Pi is running and connected to the internet.'
+                  : <>Make sure you&apos;re on the same WiFi as the Pi,<br />and the detection loop is running.</>
+                }
               </p>
             </div>
             <button
@@ -153,7 +245,7 @@ export default function LivePage() {
           </div>
         )}
 
-        {/* Idle — initial state before url loaded */}
+        {/* Idle */}
         {streamState === 'idle' && (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="text-gray-500 text-sm">Loading…</p>
@@ -161,10 +253,17 @@ export default function LivePage() {
         )}
 
         {/* LIVE badge */}
-        {streamState === 'live' && (
+        {isLive && (
           <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/50 backdrop-blur-sm px-2.5 py-1 rounded-full">
             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
             <span className="text-white text-xs font-semibold tracking-wide">LIVE</span>
+          </div>
+        )}
+
+        {/* Cloud delay badge */}
+        {isLive && mode === 'cloud' && (
+          <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-sm px-2 py-1 rounded-full">
+            <span className="text-gray-300 text-[10px] font-medium">~3 s delay</span>
           </div>
         )}
       </div>
@@ -173,8 +272,10 @@ export default function LivePage() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">About Live Feed</p>
         <p className="text-sm text-gray-600 leading-relaxed">
-          This shows the real-time camera view from the litterbox device. The stream is direct from the
-          Raspberry Pi — you must be connected to the same WiFi network as the device to view it.
+          {mode === 'cloud'
+            ? 'Cloud mode uploads a snapshot from the Pi every 3 seconds — works from anywhere with internet. There is a small delay compared to direct streaming.'
+            : 'Direct mode streams video straight from the Pi over your local WiFi. No delay, but you must be on the same network as the device.'
+          }
         </p>
       </div>
     </div>

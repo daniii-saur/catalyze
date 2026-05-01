@@ -14,6 +14,7 @@ import color_analyzer
 import command_poller
 import db
 import gallon_rotate
+import live_frame_pusher
 import maintenance
 import motor
 import remark_engine
@@ -299,6 +300,13 @@ def main():
     }
     stop_event = threading.Event()
 
+    def frame_provider():
+        with lock:
+            f = shared["frame"]
+            return f.copy() if f is not None else None
+
+    push_thread, push_stop = live_frame_pusher.start(frame_provider)
+
     if not args.no_api:
         def status_provider():
             with lock:
@@ -307,10 +315,6 @@ def main():
                     "detections":     shared["detections"],
                     "last_poop_scan": shared["last_poop_scan"],
                 }
-        def frame_provider():
-            with lock:
-                f = shared["frame"]
-                return f.copy() if f is not None else None
         run_api(CAPTURE_DIR, status_provider, frame_provider=frame_provider, port=args.api_port)
         print(f"API listening on :{args.api_port}", flush=True)
 
@@ -351,10 +355,12 @@ def main():
         maint_stop.set()
         sync_stop.set()
         cmd_stop.set()
+        push_stop.set()
         infer_thread.join(timeout=15)
         maint_thread.join(timeout=5)
         sync_thread.join(timeout=5)
         cmd_thread.join(timeout=5)
+        push_thread.join(timeout=5)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)
