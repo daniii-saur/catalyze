@@ -5,7 +5,10 @@ import type { NextRequest } from 'next/server'
 
 async function sendWelcomeEmail(to: string, name: string) {
   const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) return
+  if (!apiKey) {
+    console.warn('[welcome-email] RESEND_API_KEY is not set — skipping welcome email')
+    return
+  }
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://catalyze-health.vercel.app'
 
@@ -54,21 +57,24 @@ async function sendWelcomeEmail(to: string, name: string) {
 </html>`
 
   try {
-    await fetch('https://api.resend.com/emails', {
+    const from = process.env.RESEND_FROM_EMAIL ?? 'Catalyze <onboarding@resend.dev>'
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: 'Catalyze <onboarding@resend.dev>',
-        to: [to],
-        subject: 'Welcome to Catalyze 🐱',
-        html,
-      }),
+      body: JSON.stringify({ from, to: [to], subject: 'Welcome to Catalyze 🐱', html }),
     })
-  } catch {
-    // Non-blocking — don't fail the auth flow if email fails
+    if (!res.ok) {
+      const body = await res.text()
+      console.error(`[welcome-email] Resend API error ${res.status}: ${body}`)
+    } else {
+      console.log(`[welcome-email] sent to ${to}`)
+    }
+  } catch (err) {
+    // Non-blocking — never fail the auth flow
+    console.error('[welcome-email] fetch threw:', err)
   }
 }
 
@@ -98,12 +104,17 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
-      // Send welcome email to brand-new users (account created within the last 60 s)
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.email) {
-        const createdAt = new Date(user.created_at).getTime()
-        const isNewUser = Date.now() - createdAt < 60_000
-        if (isNewUser) {
+        // Detect new users by checking if a profile row exists yet.
+        // A missing profile means this is their first-ever login.
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (!existingProfile) {
           const name =
             user.user_metadata?.full_name ??
             user.user_metadata?.name ??
