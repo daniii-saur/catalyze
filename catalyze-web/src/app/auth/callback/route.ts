@@ -106,15 +106,19 @@ export async function GET(request: NextRequest) {
     if (!error) {
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.email) {
-        // Detect new users by checking if a profile row exists yet.
-        // A missing profile means this is their first-ever login.
-        const { data: existingProfile } = await supabase
+        // Atomically claim the welcome_email_sent flag.
+        // The Supabase trigger creates the profile row before this callback runs,
+        // so we can't use "profile missing = new user". Instead we UPDATE the flag
+        // from false→true and only send if we actually flipped it (1 row affected).
+        const { data: claimed } = await supabase
           .from('profiles')
-          .select('id')
+          .update({ welcome_email_sent: true })
           .eq('id', user.id)
+          .eq('welcome_email_sent', false)
+          .select('id')
           .maybeSingle()
 
-        if (!existingProfile) {
+        if (claimed) {
           const name =
             user.user_metadata?.full_name ??
             user.user_metadata?.name ??
