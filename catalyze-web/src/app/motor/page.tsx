@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from 'next/cache'
 import { createClient } from '@/lib/supabase-server'
 import { CleanNowButton } from '@/components/CleanNowButton'
 import { MotorActionButtons } from '@/components/MotorActionButtons'
@@ -101,7 +102,11 @@ const CMD_TYPE_STYLE: Record<string, { label: string; color: string; bg: string 
   full_cycle: { label: 'Full Cycle',  color: '#065F46', bg: '#D1FAE5' },
 }
 
+const DEVICE_ONLINE_WINDOW_MS = 20_000
+
 export default async function MotorPage() {
+  noStore()
+
   const supabase = createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -122,7 +127,10 @@ export default async function MotorPage() {
 
   const state: State = (statusRow?.state as State) ?? 'OFFLINE'
   const updatedAt    = statusRow?.updated_at ?? null
-  const isOnline     = state !== 'OFFLINE'
+  const updatedAtMs   = updatedAt ? new Date(updatedAt).getTime() : 0
+  const isFresh       = updatedAtMs > 0 && (Date.now() - updatedAtMs) < DEVICE_ONLINE_WINDOW_MS
+  const isOnline      = state !== 'OFFLINE' && isFresh
+  const displayState: State = isOnline ? state : 'OFFLINE'
 
   return (
     <div className="space-y-4">
@@ -146,15 +154,15 @@ export default async function MotorPage() {
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Device Status</p>
-            <StatusBadge state={state} />
+            <StatusBadge state={displayState} />
             {updatedAt && (
               <p className="text-xs text-gray-400 mt-0.5">
-                Updated {timeAgo(updatedAt)}
+                Updated {timeAgo(updatedAt)}{isFresh ? ' · live' : ''}
               </p>
             )}
           </div>
           <div className="flex flex-col items-end gap-2">
-            <LedIndicators state={state} />
+            <LedIndicators state={displayState} />
             <p className="text-[10px] text-gray-400 text-right">Status LEDs</p>
           </div>
         </div>

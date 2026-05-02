@@ -19,6 +19,7 @@ to change speed. Use `--simulate` to run without RPi.GPIO installed.
 import time
 import argparse
 import sys
+import threading
 
 try:
     import RPi.GPIO as GPIO
@@ -31,27 +32,43 @@ DIR_PIN = 17  # DIR+
 PUL_PIN = 27  # PUL+
 
 # default half-pulse delay (seconds). A full step cycle = 2 * STEP_DELAY
-STEP_DELAY = 0.0015
+STEP_DELAY = 0.001
+
+_GPIO_LOCK = threading.Lock()
+
+
+def _ensure_gpio_ready(simulate=False):
+    if simulate or not IS_RPI:
+        return
+    if GPIO.getmode() is None:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(DIR_PIN, GPIO.OUT)
+        GPIO.setup(PUL_PIN, GPIO.OUT)
+    GPIO.output(DIR_PIN, GPIO.LOW)
+    GPIO.output(PUL_PIN, GPIO.LOW)
 
 
 def init_gpio(simulate=False):
     if simulate or not IS_RPI:
         print("[SIM] init GPIO (DIR={}, PUL={})".format(DIR_PIN, PUL_PIN))
         return
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(DIR_PIN, GPIO.OUT)
-    GPIO.setup(PUL_PIN, GPIO.OUT)
-    GPIO.output(DIR_PIN, GPIO.LOW)
-    GPIO.output(PUL_PIN, GPIO.LOW)
+    _ensure_gpio_ready(simulate=simulate)
 
 
 def cleanup_gpio(simulate=False):
     if simulate or not IS_RPI:
         print("[SIM] cleanup GPIO")
         return
-    GPIO.output(PUL_PIN, GPIO.LOW)
-    GPIO.output(DIR_PIN, GPIO.LOW)
-    GPIO.cleanup()
+    try:
+        GPIO.output(PUL_PIN, GPIO.LOW)
+        GPIO.output(DIR_PIN, GPIO.LOW)
+    except RuntimeError:
+        # GPIO mode may already be reset by another caller.
+        pass
+    try:
+        GPIO.cleanup()
+    except RuntimeError:
+        pass
 
 
 def step_pulses(direction: int, steps: int, delay: float = STEP_DELAY, simulate=False):
@@ -64,6 +81,7 @@ def step_pulses(direction: int, steps: int, delay: float = STEP_DELAY, simulate=
                 print(f"[SIM] pulse {i+1}/{steps}")
         return
 
+    _ensure_gpio_ready(simulate=simulate)
     GPIO.output(DIR_PIN, GPIO.HIGH if direction else GPIO.LOW)
     # small settle
     time.sleep(0.01)
@@ -88,12 +106,13 @@ def rotate(direction: int, steps: int = None, duration: float = None, delay: flo
             # each full cycle uses 2 * delay seconds
             steps = max(1, int(duration / (delay * 2)))
 
-    print(f"Rotate: direction={'CW' if direction==1 else 'CCW'}, steps={steps}, delay={delay}")
-    init_gpio(simulate=simulate)
-    try:
-        step_pulses(direction, steps, delay=delay, simulate=simulate)
-    finally:
-        cleanup_gpio(simulate=simulate)
+    print(f"Rotate: direction={'CCW' if direction==1 else 'CW'}, steps={steps}, delay={delay}")
+    with _GPIO_LOCK:
+        init_gpio(simulate=simulate)
+        try:
+            step_pulses(direction, steps, delay=delay, simulate=simulate)
+        finally:
+            cleanup_gpio(simulate=simulate)
 
 
 def main(argv=None):

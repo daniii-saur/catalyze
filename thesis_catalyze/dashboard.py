@@ -39,6 +39,15 @@ except Exception:
   gr = None
   HAS_LOCAL_ROTATE = False
 
+try:
+  import raspi_tb6600_control as tb
+  HAS_FULL_CYCLE = True
+except Exception:
+  tb = None
+  HAS_FULL_CYCLE = False
+
+MOTOR_LOCK = threading.Lock()
+
 # Load environment variables if python-dotenv is available; otherwise rely on env
 try:
     from dotenv import load_dotenv
@@ -48,10 +57,28 @@ except Exception:
 if load_dotenv:
     load_dotenv()
 
-RASPI_HOST = os.getenv('RASPI_HOST', '192.168.1.16')
+RASPI_HOST = os.getenv('RASPI_HOST', '127.0.0.1')
 RASPI_PORT = os.getenv('RASPI_PORT', '5000')  # default Pi app port (change if needed)
 RASPI_PROTOCOL = os.getenv('RASPI_PROTOCOL', 'http')
 RASPI_BASE = f"{RASPI_PROTOCOL}://{RASPI_HOST}:{RASPI_PORT}"
+RASPI_API_PORT = os.getenv('RASPI_API_PORT', '8000')
+RASPI_STREAM_URL = f"{RASPI_PROTOCOL}://{RASPI_HOST}:{RASPI_API_PORT}/stream"
+FIXED_ROTATE_CCW_SECONDS = float(os.getenv('FIXED_ROTATE_CCW_SECONDS', '7'))
+FIXED_ROTATE_CW_SECONDS = float(os.getenv('FIXED_ROTATE_CW_SECONDS', '8'))
+FULL_CYCLE_SECONDS = float(os.getenv('FULL_CYCLE_SECONDS', '9'))
+# Step delay in seconds fed to every gr.rotate() call.
+BASE_STEP_DELAY = 0.001
+# Run local motor at 30% of full speed (delay = 3× baseline).
+LOCAL_DELAY_SCALE = 3.0
+
+
+def _use_local_rotate() -> bool:
+  """Resolve local-rotate behavior from env with sensible localhost defaults."""
+  raw = os.getenv('USE_LOCAL_ROTATE')
+  if raw is not None:
+    return raw.strip().lower() in {'1', 'true', 'yes', 'on'}
+  # If running on the Pi/host itself, prefer local control when available.
+  return HAS_LOCAL_ROTATE and RASPI_HOST in {'127.0.0.1', 'localhost'}
 
 app = Flask(__name__)
 
@@ -71,6 +98,7 @@ INDEX_HTML = r"""<!doctype html>
     button{flex:1;padding:10px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer;font-weight:700}
     button.cw{background:#dbffe6}
     button.ccw{background:#ffe6e6}
+    button.full{background:#e9f0ff;border-color:#98b1ff}
     
     label{display:block;margin-top:8px;font-weight:600}
     input[type=number]{width:100%;padding:8px;border-radius:6px;border:1px solid #ddd}
@@ -84,19 +112,30 @@ INDEX_HTML = r"""<!doctype html>
 
     <label>Duration (seconds)</label>
     <input id="duration" type="number" min="0" step="0.1" value="1" />
+    <p style="margin:8px 0 0;color:#555;font-size:12px;">CCW: 7s at 30% speed | CW: 8s at 30% speed | Full Cycle: CCW 7s → CW 8s at 30% speed.</p>
 
     <div class="controls">
       <button id="btn-level">Level Litterbox</button>
-      <button id="btn-cw" class="cw">Rotate CW</button>
-      <button id="btn-ccw" class="ccw">Rotate CCW</button>
+      <button id="btn-cw" class="cw">Rotate CW (8s)</button>
+      <button id="btn-ccw" class="ccw">Rotate CCW (7s)</button>
     </div>
 
-    <!-- Pi camera monitor removed; local webcam remains on the right -->
+    <div class="controls">
+      <button id="btn-full-cycle" class="full">Full Cycle Clean (CCW 9s -> CW 9s)</button>
+    </div>
 
-    
+    <div id="messages" style="margin-top:12px;padding:10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;font-size:13px;white-space:pre-wrap">Ready</div>
+
     </div>
 
     <div class="right">
+      <h2>Pi Camera Stream</h2>
+      <img id="piCamera" alt="Pi camera stream" style="width:100%;border:1px solid #ddd;border-radius:6px;background:#000" />
+      <div style="display:flex;gap:8px;margin-top:8px;margin-bottom:12px;">
+        <button id="startPiCam">Start Pi Stream</button>
+        <button id="stopPiCam">Stop Pi Stream</button>
+      </div>
+
       <h2>Local Webcam</h2>
       <video id="localVideo" autoplay muted playsinline style="width:100%;border:1px solid #ddd;border-radius:6px;background:#000"></video>
       <div style="display:flex;gap:8px;margin-top:8px;">
@@ -108,11 +147,18 @@ INDEX_HTML = r"""<!doctype html>
 
   <script>
     const base = '%RASPI_BASE%';
+    const streamUrl = '%RASPI_STREAM_URL%';
     
     const durationEl = document.getElementById('duration');
     const btnLevel = document.getElementById('btn-level');
     const btnCW = document.getElementById('btn-cw');
     const btnCCW = document.getElementById('btn-ccw');
+    const btnFullCycle = document.getElementById('btn-full-cycle');
+    const messagesEl = document.getElementById('messages');
+
+    function setMessage(msg) {
+      messagesEl.textContent = msg;
+    }
 
     // Use server endpoints rather than posting directly to the Pi.
     async function postToServer(path, data) {
@@ -128,27 +174,56 @@ INDEX_HTML = r"""<!doctype html>
     // Pi status polling removed (messages shown in the Messages box)
 
     btnLevel.addEventListener('click', async () => {
-      console.log('Sending level command to server...');
-      const r = await postToServer('/api/level', { level: 1 });
-      console.log(`Response ${r.status}\n\n${r.text}`);
+      setMessage('Sending level command...');
+      const d = parseFloat(durationEl.value) || 1;
+      const r = await postToServer('/api/level', { level: 1, duration: d });
+      setMessage(`Level response ${r.status}\n${r.text}`);
     });
 
     btnCW.addEventListener('click', async () => {
-      const d = parseFloat(durationEl.value) || 0;
-      console.log('Sending CW to server...');
-      const r = await postToServer('/api/rotate', { direction: 1, duration: d });
-      console.log(`Response ${r.status}\n\n${r.text}`);
+      setMessage('Sending CW for 8 seconds (at 30% speed)...');
+      const r = await postToServer('/api/rotate', { direction: 1, duration: 8 });
+      setMessage(`CW response ${r.status}\n${r.text}`);
     });
 
     btnCCW.addEventListener('click', async () => {
-      const d = parseFloat(durationEl.value) || 0;
-      console.log('Sending CCW to server...');
-      const r = await postToServer('/api/rotate', { direction: 0, duration: d });
-      console.log(`Response ${r.status}\n\n${r.text}`);
+      setMessage('Sending CCW for 7 seconds (at 30% speed)...');
+      const r = await postToServer('/api/rotate', { direction: 0, duration: 7 });
+      setMessage(`CCW response ${r.status}\n${r.text}`);
     });
 
-    // Pi status polling removed
-    // Pi camera monitor removed; local webcam remains
+    btnFullCycle.addEventListener('click', async () => {
+      setMessage('Starting one full cycle clean (CCW 7s → CW 8s, at 30% speed)...');
+      const r = await postToServer('/api/full-cycle-clean', { duration: 8 });
+      setMessage(`Full cycle response ${r.status}\n${r.text}`);
+    });
+
+    // Pi camera stream controls
+    const piCamera = document.getElementById('piCamera');
+    const startPiCamBtn = document.getElementById('startPiCam');
+    const stopPiCamBtn = document.getElementById('stopPiCam');
+
+    function startPiCam() {
+      // Add cache buster so browser reconnects cleanly
+      piCamera.src = `${streamUrl}?t=${Date.now()}`;
+      setMessage(`Pi stream started: ${streamUrl}`);
+    }
+
+    function stopPiCam() {
+      piCamera.src = '';
+      setMessage('Pi stream stopped');
+    }
+
+    startPiCamBtn.addEventListener('click', startPiCam);
+    stopPiCamBtn.addEventListener('click', stopPiCam);
+
+    piCamera.addEventListener('error', () => {
+      setMessage(`Pi stream unavailable: ${streamUrl}`);
+    });
+
+    // Auto-start Pi stream on page load
+    startPiCam();
+
     // Local webcam (browser getUserMedia)
     const startLocalBtn = document.getElementById('startLocal');
     const stopLocalBtn = document.getElementById('stopLocal');
@@ -182,32 +257,58 @@ INDEX_HTML = r"""<!doctype html>
 
 @app.route('/', methods=['GET'])
 def index():
-    html = INDEX_HTML.replace('%RASPI_BASE%', RASPI_BASE)
+    html = INDEX_HTML.replace('%RASPI_BASE%', RASPI_BASE).replace('%RASPI_STREAM_URL%', RASPI_STREAM_URL)
     return Response(html, mimetype='text/html')
 
 
 @app.route('/api/level', methods=['POST'])
 def api_level():
     """Trigger the Pi levelling action by POSTing form data to Pi root."""
+    data = request.get_json(silent=True) or {}
+  
     # If configured to use local rotation, invoke it directly.
-    use_local = os.getenv('USE_LOCAL_ROTATE', '0') == '1'
+    use_local = _use_local_rotate()
     if use_local and HAS_LOCAL_ROTATE:
-        # levelling: run a short CW rotate in background
-        def _run():
-            try:
-                dur = float(request.get_json(silent=True) or {}).get('duration', 1) if request.is_json else 1
-            except Exception:
-                dur = 1
-            gr.rotate(1, duration=dur, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
-
-        t = threading.Thread(target=_run, daemon=True)
-        t.start()
-        return jsonify({'started': True}), 202
-
+      try:
+        dur = float(data.get('duration', 1))
+      except Exception:
+        dur = 1
+  
+      # levelling: run a short CW rotate in background
+      def _run():
+        with MOTOR_LOCK:
+          gr.rotate(
+            1,
+            duration=dur,
+            delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+            simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+          )
+  
+      t = threading.Thread(target=_run, daemon=True)
+      t.start()
+      return jsonify({'started': True}), 202
+  
     try:
-        r = requests.post(RASPI_BASE + '/', data={'level': '1'}, timeout=10)
+      r = requests.post(RASPI_BASE + '/', data={'level': '1'}, timeout=10)
     except requests.RequestException as e:
-        return jsonify({'error': str(e)}), 502
+      if HAS_LOCAL_ROTATE:
+        try:
+          dur = float(data.get('duration', 1))
+        except Exception:
+          dur = 1
+
+        def _run_local_fallback():
+          gr.rotate(
+            1,
+            duration=dur,
+            delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+            simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+          )
+
+        t = threading.Thread(target=_run_local_fallback, daemon=True)
+        t.start()
+        return jsonify({'started': True, 'fallback': 'local', 'warning': str(e)}), 202
+      return jsonify({'error': str(e)}), 502
     return (r.text, r.status_code)
 
 
@@ -216,10 +317,11 @@ def api_rotate():
     """Rotate gallon on Pi by sending form data 'direction' (1 or 0) and optional duration."""
     data = request.get_json() or {}
     direction = int(data.get('direction', 1))
-    duration = data.get('duration')
+    # Use direction-specific duration: 0=CCW (7s), 1=CW (8s)
+    duration = FIXED_ROTATE_CCW_SECONDS if direction == 0 else FIXED_ROTATE_CW_SECONDS
 
     # If configured to use local rotation, run local motor driver in background
-    use_local = os.getenv('USE_LOCAL_ROTATE', '0') == '1'
+    use_local = _use_local_rotate()
     if use_local and HAS_LOCAL_ROTATE:
         def _run():
             try:
@@ -227,10 +329,20 @@ def api_rotate():
             except Exception:
                 dur = None
             try:
-                if dur is None:
-                    gr.rotate(direction, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
-                else:
-                    gr.rotate(direction, duration=dur, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
+                with MOTOR_LOCK:
+                    if dur is None:
+                        gr.rotate(
+                            direction,
+                            delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                            simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+                        )
+                    else:
+                        gr.rotate(
+                            direction,
+                            duration=dur,
+                            delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                            simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+                        )
             except Exception as e:
                 # log to stdout — Flask will capture
                 print('Local rotate error:', e)
@@ -243,20 +355,97 @@ def api_rotate():
     if duration is not None:
         form['duration'] = str(duration)
     try:
-        r = requests.post(RASPI_BASE + '/', data=form, timeout=10)
+      r = requests.post(RASPI_BASE + '/', data=form, timeout=10)
     except requests.RequestException as e:
-        return jsonify({'error': str(e)}), 502
+      if HAS_LOCAL_ROTATE:
+        def _run_local_fallback():
+          try:
+            dur = float(duration) if duration is not None else None
+          except Exception:
+            dur = None
+          with MOTOR_LOCK:
+            if dur is None:
+              gr.rotate(
+                direction,
+                delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+              )
+            else:
+              gr.rotate(
+                direction,
+                duration=dur,
+                delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'),
+              )
+
+        t = threading.Thread(target=_run_local_fallback, daemon=True)
+        t.start()
+        return jsonify({'started': True, 'fallback': 'local', 'warning': str(e)}), 202
+      return jsonify({'error': str(e)}), 502
     return (r.text, r.status_code)
 
 
-# /api/status removed — PC client no longer proxies Pi status
+@app.route('/api/full-cycle-clean', methods=['POST'])
+def api_full_cycle_clean():
+    """Run exactly one full clean cycle: CCW for duration, then CW for duration."""
+    data = request.get_json(silent=True) or {}
+    try:
+        duration = float(data.get('duration', FULL_CYCLE_SECONDS))
+    except (TypeError, ValueError):
+        duration = FULL_CYCLE_SECONDS
+
+    # Prefer local motor full-cycle routine when available.
+    use_local = _use_local_rotate()
+    if use_local and HAS_LOCAL_ROTATE:
+        simulate = (os.getenv('LOCAL_SIMULATE', '0') == '1')
+
+        def _run_local_full_cycle():
+            try:
+                with MOTOR_LOCK:
+                    # Exactly one cycle per request: CCW once, then CW once.
+                    gr.rotate(
+                        0,
+                        duration=duration,
+                        delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                        simulate=simulate,
+                    )
+                    time.sleep(2)
+                    gr.rotate(
+                        1,
+                        duration=duration,
+                        delay=BASE_STEP_DELAY * LOCAL_DELAY_SCALE,
+                        simulate=simulate,
+                    )
+            except Exception as e:
+                print('Full cycle error:', e)
+
+        t = threading.Thread(target=_run_local_full_cycle, daemon=True)
+        t.start()
+        return jsonify({'started': True, 'mode': 'local', 'duration': duration, 'cycles': 1}), 202
+
+    # Remote fallback: sequence two rotate requests to Pi root route.
+    try:
+        r1 = requests.post(RASPI_BASE + '/', data={'direction': '0', 'duration': str(duration)}, timeout=10)
+        r2 = requests.post(RASPI_BASE + '/', data={'direction': '1', 'duration': str(duration)}, timeout=10)
+        return jsonify({
+            'started': True,
+            'mode': 'remote-sequence',
+            'ccw_status': r1.status_code,
+            'cw_status': r2.status_code,
+        }), 202
+    except requests.RequestException as e:
+        return jsonify({'error': str(e)}), 502
+
+
+# /api/status removed - PC client no longer proxies Pi status
 
 
 @app.route('/api/camera', methods=['GET'])
 def api_camera():
-  return jsonify({'error': 'camera proxy removed'}), 410
+    return jsonify({'stream_url': RASPI_STREAM_URL})
 
 
 if __name__ == '__main__':
     port = int(os.getenv('PC_CLIENT_PORT', 5001))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    debug = os.getenv('DASHBOARD_DEBUG', '0') == '1'
+    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=debug)
