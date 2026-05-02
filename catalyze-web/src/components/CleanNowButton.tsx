@@ -15,21 +15,22 @@ export function CleanNowButton({ userEmail }: { userEmail: string }) {
     if (btnState !== 'idle') return
     setBtnState('pending')
 
-    // Insert the command row
-    const { data, error } = await supabase
-      .from('commands')
-      .insert({ type: 'clean', status: 'pending', triggered_by: userEmail })
-      .select('id')
-      .single()
+    const res = await fetch('/api/motor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'clean' }),
+    })
 
-    if (error || !data) {
-      console.error('[clean] insert failed', error)
+    const payload = await res.json().catch(() => null)
+
+    if (!res.ok || !payload?.id) {
+      console.error('[clean] enqueue failed', payload)
       setBtnState('error')
       setTimeout(() => setBtnState('idle'), 4_000)
       return
     }
 
-    const cmdId  = data.id
+    const cmdId = payload.id
     const deadline = Date.now() + TIMEOUT_MS
 
     // Poll until done / failed / timeout

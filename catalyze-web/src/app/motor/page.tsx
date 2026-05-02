@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase-server'
 import { CleanNowButton } from '@/components/CleanNowButton'
+import { MotorActionButtons } from '@/components/MotorActionButtons'
 
 type State = 'MONITORING' | 'OCCUPIED' | 'CHECKING' | 'DIRTY' | 'COOLDOWN' | 'OFFLINE' | string
 
@@ -93,6 +94,13 @@ const CMD_STATUS_STYLE: Record<string, { bg: string; color: string; label: strin
   failed:  { bg: '#FEE2E2', color: '#991B1B', label: 'Failed' },
 }
 
+const CMD_TYPE_STYLE: Record<string, { label: string; color: string; bg: string }> = {
+  clean:      { label: 'Clean',       color: '#92400E', bg: '#FEF3C7' },
+  cw:         { label: 'CW',          color: '#1E40AF', bg: '#DBEAFE' },
+  ccw:        { label: 'CCW',         color: '#1D4ED8', bg: '#DBEAFE' },
+  full_cycle: { label: 'Full Cycle',  color: '#065F46', bg: '#D1FAE5' },
+}
+
 export default async function MotorPage() {
   const supabase = createClient()
 
@@ -108,7 +116,6 @@ export default async function MotorPage() {
     supabase
       .from('commands')
       .select('id, type, status, triggered_by, created_at, executed_at')
-      .eq('type', 'clean')
       .order('created_at', { ascending: false })
       .limit(10),
   ])
@@ -169,6 +176,7 @@ export default async function MotorPage() {
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Manual Control</p>
           <CleanNowButton userEmail={userEmail} />
+          <MotorActionButtons />
           <div className="flex items-center gap-2 pt-1">
             <div className="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0" />
             <p className="text-xs text-gray-400">
@@ -217,6 +225,7 @@ export default async function MotorPage() {
           <div className="flex flex-col gap-2">
             {commands.map(cmd => {
               const style = CMD_STATUS_STYLE[cmd.status] ?? CMD_STATUS_STYLE.pending
+              const typeStyle = CMD_TYPE_STYLE[cmd.type] ?? { label: cmd.type, color: '#374151', bg: '#F3F4F6' }
               const triggeredBy = cmd.triggered_by === 'button' ? 'Physical button' : (cmd.triggered_by ?? 'App')
               return (
                 <div
@@ -253,6 +262,12 @@ export default async function MotorPage() {
                         style={{ backgroundColor: style.bg, color: style.color }}
                       >
                         {style.label}
+                      </span>
+                      <span
+                        className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ backgroundColor: typeStyle.bg, color: typeStyle.color }}
+                      >
+                        {typeStyle.label}
                       </span>
                       <span className="text-xs text-gray-400 truncate">{triggeredBy}</span>
                     </div>

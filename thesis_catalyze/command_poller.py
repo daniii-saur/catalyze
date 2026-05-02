@@ -2,7 +2,8 @@
 command_poller.py
 
 Background thread that polls the Supabase `commands` table every
-POLL_INTERVAL seconds for rows where type='clean' and status='pending'.
+POLL_INTERVAL seconds for rows where type in ('clean', 'cw', 'ccw', 'full_cycle')
+and status='pending'.
 
 When a matching row is found:
   1. Immediately marks it 'running' (prevents duplicate execution)
@@ -26,6 +27,10 @@ load_dotenv()
 
 POLL_INTERVAL = 3   # seconds between Supabase polls
 
+CCW_SECONDS = float(os.environ.get('FIXED_ROTATE_CCW_SECONDS', '7'))
+CW_SECONDS = float(os.environ.get('FIXED_ROTATE_CW_SECONDS', '8'))
+FULL_CYCLE_PAUSE_SECONDS = float(os.environ.get('FULL_CYCLE_PAUSE_SECONDS', '2'))
+
 
 def _get_client():
     """Build and return a Supabase client, or None if env vars are missing."""
@@ -42,16 +47,41 @@ def _get_client():
         return None
 
 
+def _run_motor_action(action: str, dry_run: bool) -> None:
+    import motor
+    import gallon_rotate
+
+    if action == 'clean':
+        motor.run_cleaning_cycle(simulate=dry_run)
+        return
+
+    if action == 'cw':
+        gallon_rotate.rotate(1, duration=CW_SECONDS, delay=gallon_rotate.STEP_DELAY, simulate=dry_run)
+        return
+
+    if action == 'ccw':
+        gallon_rotate.rotate(0, duration=CCW_SECONDS, delay=gallon_rotate.STEP_DELAY, simulate=dry_run)
+        return
+
+    if action == 'full_cycle':
+        gallon_rotate.rotate(0, duration=CCW_SECONDS, delay=gallon_rotate.STEP_DELAY, simulate=dry_run)
+        time.sleep(FULL_CYCLE_PAUSE_SECONDS)
+        gallon_rotate.rotate(1, duration=CW_SECONDS, delay=gallon_rotate.STEP_DELAY, simulate=dry_run)
+        return
+
+    raise ValueError(f'Unsupported command type: {action}')
+
+
 def _handle_one(client, dry_run: bool) -> bool:
-    """Claim and execute the oldest pending clean command.
+    """Claim and execute the oldest pending motor command.
 
     Returns True if a command was processed, False if the queue was empty.
     """
     try:
         resp = (
             client.table("commands")
-            .select("id")
-            .eq("type", "clean")
+            .select("id, type")
+            .in_("type", ["clean", "cw", "ccw", "full_cycle"])
             .eq("status", "pending")
             .order("created_at", desc=False)
             .limit(1)
@@ -65,8 +95,10 @@ def _handle_one(client, dry_run: bool) -> bool:
         # Silently skip if no pending commands (avoid spam)
         return False
 
-    cmd_id = resp.data[0]["id"]
-    print(f"[cmd] claiming command id={cmd_id} dry_run={dry_run}", flush=True)
+    cmd_row = resp.data[0]
+    cmd_id = cmd_row["id"]
+    action = cmd_row["type"]
+    print(f"[cmd] claiming command id={cmd_id} action={action} dry_run={dry_run}", flush=True)
 
     # Atomically mark as 'running' so a second Pi instance won't duplicate it
     try:
@@ -77,8 +109,7 @@ def _handle_one(client, dry_run: bool) -> bool:
 
     # Execute the motor cycle
     try:
-        import motor
-        motor.run_cleaning_cycle(simulate=dry_run)
+        _run_motor_action(action, dry_run)
         executed_at = datetime.now(timezone.utc).isoformat()
         client.table("commands").update({
             "status":      "done",
