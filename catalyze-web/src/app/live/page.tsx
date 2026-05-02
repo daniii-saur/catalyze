@@ -49,6 +49,20 @@ export default function LivePage() {
     pollRef.current = undefined
   }, [])
 
+  // ── Direct (same-network MJPEG) ───────────────────────────────────
+  const startDirectStream = useCallback(() => {
+    if (!url) return
+    setStreamState('connecting')
+    clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setStreamState(prev => prev === 'connecting' ? 'offline' : prev)
+    }, 8_000)
+  }, [url])
+
+  const stopDirectStream = useCallback(() => {
+    clearTimeout(timeoutRef.current)
+  }, [])
+
   useEffect(() => {
     if (mode === 'cloud') {
       stopDirectStream()
@@ -76,20 +90,6 @@ export default function LivePage() {
     }
     // keep polling — device may come online
   }
-
-  // ── Direct (same-network MJPEG) ───────────────────────────────────
-  const startDirectStream = useCallback(() => {
-    if (!url) return
-    setStreamState('connecting')
-    clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => {
-      setStreamState(prev => prev === 'connecting' ? 'offline' : prev)
-    }, 8_000)
-  }, [url])
-
-  const stopDirectStream = useCallback(() => {
-    clearTimeout(timeoutRef.current)
-  }, [])
 
   function handleDirectLoad() {
     clearTimeout(timeoutRef.current)
