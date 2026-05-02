@@ -58,10 +58,11 @@ def _handle_one(client, dry_run: bool) -> bool:
             .execute()
         )
     except Exception as exc:
-        print(f"[cmd] poll error: {exc}", flush=True)
+        print(f"[cmd] poll error: {type(exc).__name__}: {exc}", flush=True)
         return False
 
     if not resp.data:
+        # Silently skip if no pending commands (avoid spam)
         return False
 
     cmd_id = resp.data[0]["id"]

@@ -29,6 +29,15 @@ import os
 import time
 from flask import Flask, request, jsonify, Response
 import requests
+import threading
+
+# Try to import local motor controller
+try:
+  import gallon_rotate as gr
+  HAS_LOCAL_ROTATE = True
+except Exception:
+  gr = None
+  HAS_LOCAL_ROTATE = False
 
 # Load environment variables if python-dotenv is available; otherwise rely on env
 try:
@@ -105,15 +114,12 @@ INDEX_HTML = r"""<!doctype html>
     const btnCW = document.getElementById('btn-cw');
     const btnCCW = document.getElementById('btn-ccw');
 
-    async function postFormToPi(formData) {
-      // POST to the Pi's root path as form-encoded data
-      const body = new URLSearchParams();
-      for (const [k,v] of Object.entries(formData)) body.append(k, v);
-
-      const res = await fetch(base + '/', {
+    // Use server endpoints rather than posting directly to the Pi.
+    async function postToServer(path, data) {
+      const res = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString()
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data || {})
       });
       const text = await res.text();
       return { ok: res.ok, status: res.status, text };
@@ -122,22 +128,22 @@ INDEX_HTML = r"""<!doctype html>
     // Pi status polling removed (messages shown in the Messages box)
 
     btnLevel.addEventListener('click', async () => {
-      console.log('Sending level command...');
-      const r = await postFormToPi({ level: '1' });
+      console.log('Sending level command to server...');
+      const r = await postToServer('/api/level', { level: 1 });
       console.log(`Response ${r.status}\n\n${r.text}`);
     });
 
     btnCW.addEventListener('click', async () => {
       const d = parseFloat(durationEl.value) || 0;
-      console.log('Sending CW...');
-      const r = await postFormToPi({ direction: '1', duration: String(d) });
+      console.log('Sending CW to server...');
+      const r = await postToServer('/api/rotate', { direction: 1, duration: d });
       console.log(`Response ${r.status}\n\n${r.text}`);
     });
 
     btnCCW.addEventListener('click', async () => {
       const d = parseFloat(durationEl.value) || 0;
-      console.log('Sending CCW...');
-      const r = await postFormToPi({ direction: '0', duration: String(d) });
+      console.log('Sending CCW to server...');
+      const r = await postToServer('/api/rotate', { direction: 0, duration: d });
       console.log(`Response ${r.status}\n\n${r.text}`);
     });
 
@@ -183,6 +189,21 @@ def index():
 @app.route('/api/level', methods=['POST'])
 def api_level():
     """Trigger the Pi levelling action by POSTing form data to Pi root."""
+    # If configured to use local rotation, invoke it directly.
+    use_local = os.getenv('USE_LOCAL_ROTATE', '0') == '1'
+    if use_local and HAS_LOCAL_ROTATE:
+        # levelling: run a short CW rotate in background
+        def _run():
+            try:
+                dur = float(request.get_json(silent=True) or {}).get('duration', 1) if request.is_json else 1
+            except Exception:
+                dur = 1
+            gr.rotate(1, duration=dur, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return jsonify({'started': True}), 202
+
     try:
         r = requests.post(RASPI_BASE + '/', data={'level': '1'}, timeout=10)
     except requests.RequestException as e:
@@ -194,9 +215,31 @@ def api_level():
 def api_rotate():
     """Rotate gallon on Pi by sending form data 'direction' (1 or 0) and optional duration."""
     data = request.get_json() or {}
-    direction = str(int(data.get('direction', 1)))
+    direction = int(data.get('direction', 1))
     duration = data.get('duration')
-    form = {'direction': direction}
+
+    # If configured to use local rotation, run local motor driver in background
+    use_local = os.getenv('USE_LOCAL_ROTATE', '0') == '1'
+    if use_local and HAS_LOCAL_ROTATE:
+        def _run():
+            try:
+                dur = float(duration) if duration is not None else None
+            except Exception:
+                dur = None
+            try:
+                if dur is None:
+                    gr.rotate(direction, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
+                else:
+                    gr.rotate(direction, duration=dur, simulate=(os.getenv('LOCAL_SIMULATE', '0') == '1'))
+            except Exception as e:
+                # log to stdout — Flask will capture
+                print('Local rotate error:', e)
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        return jsonify({'started': True}), 202
+
+    form = {'direction': str(int(direction))}
     if duration is not None:
         form['duration'] = str(duration)
     try:
