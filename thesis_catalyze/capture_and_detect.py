@@ -1,6 +1,7 @@
 import argparse
 import gc
 import json
+import sys
 import threading
 import time
 from datetime import datetime
@@ -275,15 +276,25 @@ def main():
     sync_thread,  sync_stop    = supabase_sync.start(CAPTURE_DIR)
     cmd_thread,   cmd_stop     = command_poller.start(dry_run=args.dry_run)
 
-    picam2 = Picamera2()
-    config = picam2.create_preview_configuration(
-        main={"size": (1280, 720), "format": "RGB888"},
-        buffer_count=2,
-    )
-    picam2.configure(config)
-    picam2.start()
-    picam2.set_controls({"FrameDurationLimits": (100000, 100000)})  # 10 fps
-    time.sleep(2)
+    try:
+        picam2 = Picamera2()
+        config = picam2.create_preview_configuration(
+            main={"size": (1280, 720), "format": "RGB888"},
+            buffer_count=2,
+        )
+        picam2.configure(config)
+        picam2.start()
+        picam2.set_controls({"FrameDurationLimits": (100000, 100000)})  # 10 fps
+        time.sleep(2)
+    except Exception as exc:
+        print(
+            "Camera failed to start. Check that you are on a Raspberry Pi, "
+            "the camera is connected/enabled, and picamera2/libcamera are installed.",
+            file=sys.stderr,
+            flush=True,
+        )
+        print(f"Camera error: {exc!r}", file=sys.stderr, flush=True)
+        raise SystemExit(1) from exc
 
     print("Loading models...", flush=True)
     cat_model  = YOLO(CAT_WEIGHTS)
