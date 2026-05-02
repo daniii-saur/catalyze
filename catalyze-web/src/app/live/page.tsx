@@ -59,10 +59,9 @@ export default function LivePage() {
     }
     return () => {
       stopCloudPolling()
-      clearTimeout(timeoutRef.current)
+      stopDirectStream()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, url])
+  }, [mode, url, startCloudPolling, stopCloudPolling, startDirectStream, stopDirectStream])
 
   // ── Cloud image callbacks ─────────────────────────────────────────
   function handleCloudLoad() {
@@ -79,18 +78,18 @@ export default function LivePage() {
   }
 
   // ── Direct (same-network MJPEG) ───────────────────────────────────
-  function startDirectStream() {
+  const startDirectStream = useCallback(() => {
     if (!url) return
     setStreamState('connecting')
     clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setStreamState(prev => prev === 'connecting' ? 'offline' : prev)
     }, 8_000)
-  }
+  }, [url])
 
-  function stopDirectStream() {
+  const stopDirectStream = useCallback(() => {
     clearTimeout(timeoutRef.current)
-  }
+  }, [])
 
   function handleDirectLoad() {
     clearTimeout(timeoutRef.current)
@@ -198,11 +197,11 @@ export default function LivePage() {
         )}
 
         {/* Direct mode: MJPEG */}
-        {mode === 'direct' && url && (
+        {mode === 'direct' && url && streamState !== 'idle' && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             ref={imgRef}
-            src={streamState === 'idle' ? '' : `${url}?t=${Date.now()}`}
+            src={url}
             alt="Live feed"
             onLoad={handleDirectLoad}
             onError={handleDirectError}
