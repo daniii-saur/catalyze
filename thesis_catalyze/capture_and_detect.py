@@ -15,6 +15,7 @@ import color_analyzer
 import command_poller
 import db
 import gallon_rotate
+import gpio_controller
 import live_frame_pusher
 import maintenance
 import motor
@@ -318,6 +319,11 @@ def main():
 
     push_thread, push_stop = live_frame_pusher.start(frame_provider)
 
+    def _state_getter():
+        with lock:
+            return shared["state"]
+    gpio_thread, gpio_stop = gpio_controller.start(_state_getter, dry_run=args.dry_run)
+
     if not args.no_api:
         def status_provider():
             with lock:
@@ -367,11 +373,13 @@ def main():
         sync_stop.set()
         cmd_stop.set()
         push_stop.set()
+        gpio_stop.set()
         infer_thread.join(timeout=15)
         maint_thread.join(timeout=5)
         sync_thread.join(timeout=5)
         cmd_thread.join(timeout=5)
         push_thread.join(timeout=5)
+        gpio_thread.join(timeout=5)
         picam2.stop()
         cv2.destroyAllWindows()
         print("Stopped.", flush=True)
